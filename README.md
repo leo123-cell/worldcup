@@ -45,6 +45,33 @@ npm run build
 npm run start
 ```
 
+## Deploy To Netlify
+
+This repo includes `netlify.toml` and a Netlify Function for:
+
+```text
+/api/recognize-ticket
+```
+
+Netlify build settings:
+
+```text
+Build command: npm run build
+Publish directory: dist
+Functions directory: netlify/functions
+```
+
+Set these environment variables in Netlify:
+
+```env
+AI_PROVIDER=qwen
+DASHSCOPE_API_KEY=your-key
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+QWEN_MODEL=qwen-vl-ocr-latest
+```
+
+Do not put real API keys in GitHub.
+
 ## Current Data Model
 
 当前版本使用浏览器 `localStorage` 保存数据。部署后每个浏览器的数据相互独立。
