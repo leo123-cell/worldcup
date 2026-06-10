@@ -69,7 +69,11 @@ function nextIso(days) {
   const date = new Date();
   date.setDate(date.getDate() + days);
   date.setHours(22, 0, 0, 0);
-  return date.toISOString().slice(0, 16);
+  return formatDateTimeInput(date);
+}
+
+function formatDateTimeInput(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 function worldCup2026GroupMatches() {
@@ -291,14 +295,16 @@ function getMatchStatus(match) {
   return Date.now() >= kickoff ? "finished" : "scheduled";
 }
 
-function canSubmitTicket(matches) {
+function canSubmitTicket(matches, purchaseTime) {
   if (!matches.length) return { ok: false, reason: "至少选择一场比赛。" };
-  const closeAt = Date.now() + CLOSE_MINUTES * 60 * 1000;
+  const purchaseAt = new Date(purchaseTime).getTime();
+  if (!Number.isFinite(purchaseAt)) return { ok: false, reason: "请填写有效的购买时间。" };
+  const closeAt = purchaseAt + CLOSE_MINUTES * 60 * 1000;
   const closed = matches.find((match) => new Date(match.kickoffTime).getTime() <= closeAt);
   if (closed) {
     return {
       ok: false,
-      reason: `${closed.matchNo} ${closed.homeTeam} vs ${closed.awayTeam} 已开赛或距离开赛不足 ${CLOSE_MINUTES} 分钟。`,
+      reason: `${closed.matchNo} ${closed.homeTeam} vs ${closed.awayTeam} 在票据购买时间前已开赛，或购买时间距离开赛不足 ${CLOSE_MINUTES} 分钟。`,
     };
   }
   return { ok: true, reason: "" };
@@ -548,7 +554,7 @@ function normalizeModelDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 16);
+  return formatDateTimeInput(date);
 }
 
 export default function App() {
@@ -805,7 +811,7 @@ function UploadView({ data, commit, locked }) {
   const [form, setForm] = useState({
     participantId: data.participants[0]?.id || "",
     ticketNo: "",
-    purchaseTime: new Date().toISOString().slice(0, 16),
+    purchaseTime: formatDateTimeInput(new Date()),
     playType: "",
     stakeAmount: "",
     multiplier: "",
@@ -893,7 +899,7 @@ function UploadView({ data, commit, locked }) {
     });
     const allMatches = [...data.matches, ...addedMatches];
     const selectedMatches = Array.from(matchedIds).map((id) => allMatches.find((match) => match.id === id)).filter(Boolean);
-    const gate = canSubmitTicket(selectedMatches);
+    const gate = canSubmitTicket(selectedMatches, form.purchaseTime);
     if (!gate.ok) {
       alert(gate.reason);
       return;
@@ -1236,7 +1242,7 @@ function MatchesView({ data, commit }) {
     matchNo: "",
     homeTeam: "",
     awayTeam: "",
-    kickoffTime: new Date().toISOString().slice(0, 16),
+    kickoffTime: formatDateTimeInput(new Date()),
   });
 
   function addMatch(event) {
@@ -1261,7 +1267,7 @@ function MatchesView({ data, commit }) {
     };
     commit({ ...data, matches: [...data.matches, newMatch] });
     setScoreDrafts((next) => ({ ...next, [newMatch.id]: { homeScore: "", awayScore: "" } }));
-    setForm({ matchNo: "", homeTeam: "", awayTeam: "", kickoffTime: new Date().toISOString().slice(0, 16) });
+    setForm({ matchNo: "", homeTeam: "", awayTeam: "", kickoffTime: formatDateTimeInput(new Date()) });
   }
 
   function removeMatch(id) {

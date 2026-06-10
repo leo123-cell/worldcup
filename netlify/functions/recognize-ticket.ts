@@ -215,8 +215,17 @@ function toConfidence(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
+function extractSingleOutcomeSelection(text: string) {
+  const matches = [...String(text || "").matchAll(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/g)];
+  const unique = [...new Set(matches.map((match) => match[1]))];
+  return unique.length === 1 ? unique[0] : "";
+}
+
 function deriveTicketFields(ticket: any) {
   const raw = ticket.rawText || "";
+  const sourceText = `${raw}\n${ticket.selectionText || ""}`;
+  const selectionMatch = sourceText.match(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/);
+  const explicitOutcomeSelection = extractSingleOutcomeSelection(sourceText);
   const stakeMatch =
     raw.match(/(?:合计|投注金额|票款|金额)\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) ||
     raw.match(/合\s*计\s*(\d+(?:\.\d{1,2})?)\s*元/);
@@ -233,6 +242,19 @@ function deriveTicketFields(ticket: any) {
   if (!ticket.ticketNo) {
     const ticketNoMatch = raw.match(/\b([A-Z0-9]{16,}(?:\s+[A-Z0-9]{6,})*)\b/);
     if (ticketNoMatch) ticket.ticketNo = ticketNoMatch[1].replace(/\s+/g, " ");
+  }
+
+  if (explicitOutcomeSelection && ticket.betItems.length) {
+    ticket.betItems = ticket.betItems.map((item: any) => {
+      const market = normalizeMarketText(item.market, item.selection);
+      if (market !== "胜平负" && market !== "让球胜平负") return item;
+      return {
+        ...item,
+        selection: explicitOutcomeSelection,
+        market,
+        odds: item.odds || toNumberOrEmpty(selectionMatch?.[2]),
+      };
+    });
   }
 
   if (!ticket.selectionText && ticket.betItems.length) {

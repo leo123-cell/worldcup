@@ -242,8 +242,15 @@ function toConfidence(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function extractSingleOutcomeSelection(text) {
+  const matches = [...String(text || "").matchAll(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/g)];
+  const unique = [...new Set(matches.map((match) => match[1]))];
+  return unique.length === 1 ? unique[0] : "";
+}
+
 function deriveTicketFields(ticket) {
   const raw = ticket.rawText || "";
+  const sourceText = `${raw}\n${ticket.selectionText || ""}`;
   const stakeMatch =
     raw.match(/(?:合计|投注金额|票款|金额)\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) ||
     raw.match(/合\s*计\s*(\d+(?:\.\d{1,2})?)\s*元/);
@@ -262,10 +269,11 @@ function deriveTicketFields(ticket) {
     if (ticketNoMatch) ticket.ticketNo = ticketNoMatch[1].replace(/\s+/g, " ");
   }
 
-  const selectionMatch = raw.match(/([胜平负])@(\d+(?:\.\d+)?)/);
+  const selectionMatch = sourceText.match(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/);
   const scoreMatch = raw.match(/(\d+)\s*[:：-]\s*(\d+)\s*@(\d+(?:\.\d+)?)/);
   const totalGoalsMatch = raw.match(/总进球\s*(\d+)\s*@?(\d+(?:\.\d+)?)?/);
   const realMatchNo = (raw.match(/周[一二三四五六日天]\s*\d{3}/)?.[0] || "").replace(/\s+/g, "");
+  const explicitOutcomeSelection = extractSingleOutcomeSelection(sourceText);
 
   if (realMatchNo && ticket.betItems.length) {
     ticket.betItems = ticket.betItems.map((item) => ({
@@ -291,6 +299,19 @@ function deriveTicketFields(ticket) {
         market: scoreMatch ? "比分" : totalGoalsMatch ? "总进球" : "胜平负",
       }];
     }
+  }
+
+  if (explicitOutcomeSelection && ticket.betItems.length) {
+    ticket.betItems = ticket.betItems.map((item) => {
+      const market = normalizeMarketText(item.market, item.selection);
+      if (market !== "胜平负" && market !== "让球胜平负") return item;
+      return {
+        ...item,
+        selection: explicitOutcomeSelection,
+        market,
+        odds: item.odds || toNumberOrEmpty(selectionMatch?.[2]),
+      };
+    });
   }
 
   if (!ticket.selectionText && ticket.betItems.length) {
