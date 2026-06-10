@@ -1,0 +1,26 @@
+{
+  "name": "worldcup-betting-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "start": "node server.js --prod",
+    "preview": "node server.js --prod"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "lucide-react": "^0.468.0",
+    "multer": "^2.1.1",
+    "openai": "^6.42.0",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "vite": "^7.2.6"
+  },
+  "optionalDependencies": {
+    "@esbuild/win32-x64": "^0.28.0"
+  }
+}
