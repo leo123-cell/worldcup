@@ -562,6 +562,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("rank");
   const [selectedUser, setSelectedUser] = useState("");
   const [filter, setFilter] = useState("all");
+  const [ticketParticipantFilter, setTicketParticipantFilter] = useState("all");
 
   const rows = useMemo(() => computeRows(data.participants, data.tickets), [data]);
   const stats = useMemo(() => {
@@ -659,6 +660,8 @@ export default function App() {
             data={data}
             filter={filter}
             setFilter={setFilter}
+            participantFilter={ticketParticipantFilter}
+            setParticipantFilter={setTicketParticipantFilter}
             updateTicket={updateTicket}
             removeTicket={removeTicket}
           />
@@ -1106,14 +1109,19 @@ function BetItemsEditor({ items, matches, onChange }) {
   );
 }
 
-function TicketsView({ data, filter, setFilter, updateTicket, removeTicket }) {
+function TicketsView({ data, filter, setFilter, participantFilter, setParticipantFilter, updateTicket, removeTicket }) {
   const tickets = data.tickets
     .filter((ticket) => filter === "all" || ticket.status === filter)
+    .filter((ticket) => participantFilter === "all" || ticket.participantId === participantFilter)
     .map((ticket) => ({
       ...ticket,
       participant: data.participants.find((person) => person.id === ticket.participantId),
       matches: ticket.matchIds.map((id) => data.matches.find((match) => match.id === id)).filter(Boolean),
     }));
+  const selectedParticipant = data.participants.find((person) => person.id === participantFilter);
+  const ticketCountText = participantFilter === "all"
+    ? `当前显示 ${tickets.length} 张票据`
+    : `${selectedParticipant?.name || "该参与者"} 当前显示 ${tickets.length} 张票据`;
 
   return (
     <section className="contentStack">
@@ -1121,12 +1129,18 @@ function TicketsView({ data, filter, setFilter, updateTicket, removeTicket }) {
         <div className="panelHeader">
           <div>
             <h2>票据列表</h2>
-            <p>录入并确认比分后，点击刷新自动结算；串关未全部出比分会保持待定。</p>
+            <p>录入并确认比分后，点击刷新自动结算；串关未全部出比分会保持待定。{ticketCountText}</p>
           </div>
-          <select value={filter} onChange={(event) => setFilter(event.target.value)}>
-            <option value="all">全部状态</option>
-            {Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
-          </select>
+          <div className="ticketFilters">
+            <select value={participantFilter} onChange={(event) => setParticipantFilter(event.target.value)} aria-label="按参与者筛选">
+              <option value="all">全部参与者</option>
+              {data.participants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+            </select>
+            <select value={filter} onChange={(event) => setFilter(event.target.value)} aria-label="按状态筛选">
+              <option value="all">全部状态</option>
+              {Object.entries(statusLabels).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+          </div>
         </div>
         <div className="ticketGrid">
           {tickets.map((ticket) => (
