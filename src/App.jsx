@@ -280,6 +280,47 @@ function saveData(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
+async function loadSharedData() {
+  const response = await fetch("/api/state", { cache: "no-store" });
+  if (!response.ok) throw new Error("共享数据读取失败");
+  const result = await response.json();
+  return result.data ? migrateData(result.data) : null;
+}
+
+async function saveSharedData(data) {
+  const response = await fetch("/api/state", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || "共享数据保存失败");
+  }
+}
+
+function compressImageFile(file, maxSide = 1100, quality = 0.74) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("图片读取失败"));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => resolve(reader.result);
+      image.onload = () => {
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      image.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 function money(value) {
   return Number(value || 0).toFixed(2);
 }
@@ -582,6 +623,7 @@ function normalizeModelDateTime(value) {
 
 export default function App() {
   const [data, setData] = useState(loadData);
+  const [syncStatus, setSyncStatus] = useState("正在读取共享数据...");
   const [activeTab, setActiveTab] = useState("rank");
   const [selectedUser, setSelectedUser] = useState("");
   const [filter, setFilter] = useState("all");
@@ -598,9 +640,39 @@ export default function App() {
     };
   }, [data]);
 
+  React.useEffect(() => {
+    let alive = true;
+    loadSharedData()
+      .then((shared) => {
+        if (!alive) return;
+        if (shared) {
+          setData(shared);
+          saveData(shared);
+          setSyncStatus(`共享数据已同步：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
+        } else if ((data.tickets || []).length) {
+          saveSharedData(data)
+            .then(() => setSyncStatus("已将本机历史票据发布到共享数据。"))
+            .catch((error) => setSyncStatus(`共享保存失败：${error.message}`));
+        } else {
+          setSyncStatus("暂无共享数据，本次修改后会自动创建。");
+        }
+      })
+      .catch(() => {
+        if (alive) setSyncStatus("共享数据暂不可用，当前使用本地缓存。");
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   function commit(next) {
-    setData(next);
-    saveData(next);
+    const migrated = migrateData(next);
+    setData(migrated);
+    saveData(migrated);
+    setSyncStatus("正在保存共享数据...");
+    saveSharedData(migrated)
+      .then(() => setSyncStatus(`共享数据已保存：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`))
+      .catch((error) => setSyncStatus(`共享保存失败：${error.message}`));
   }
 
   function updateTicket(ticketId, patch) {
@@ -672,6 +744,7 @@ export default function App() {
               <Award size={17} /> {data.locked ? "已锁榜" : "锁定最终榜"}
             </button>
           </div>
+          <div className="syncStatus">{syncStatus}</div>
         </header>
 
         <EventBanner rows={rows} stats={stats} />
@@ -855,7 +928,7 @@ function UploadView({ data, commit, locked }) {
   async function onFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const imageUrl = await fileToDataUrl(file);
+    const imageUrl = await compressImageFile(file);
     setForm((next) => ({ ...next, imageUrl }));
     setBusy(true);
     setOcrStatus("大模型识别中，复杂票据可能需要十几秒");

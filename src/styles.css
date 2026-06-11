@@ -154,9 +154,9 @@ main {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   margin-bottom: 18px;
   gap: 16px;
 }
@@ -180,6 +180,20 @@ h2 {
   font-weight: 800;
 }
 .topActions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.syncStatus {
+  grid-column: 1 / -1;
+  justify-self: end;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--muted);
+  font-size: 12px;
+}
 
 .eventBanner {
   position: relative;

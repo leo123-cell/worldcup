@@ -102,6 +102,7 @@ Rules:
 - Example: "\u5468\u4e09201 \u4e3b\u961f\u8ba92\u7403 \u4e3b\u961f:\u8461\u8404\u7259 Vs \u5ba2\u961f:\u5c3c\u65e5\u5229\u4e9a \u5e73@3.550" => market=\u8ba9\u7403\u80dc\u5e73\u8d1f, selection=\u5e73, handicap=-2, odds=3.550.
 - \u6bd4\u5206 selection must be exact full-time score like 2:1.
 - \u603b\u8fdb\u7403 selection must be the total goals number like 3.
+- If the ticket title says \u7ade\u5f69\u8db3\u7403\u603b\u8fdb\u7403\u6570 and the line says "(3)@3.400", market=\u603b\u8fdb\u7403, selection=3, odds=3.400.
 - rawText should transcribe important visible ticket text.
 - rawText is required. Transcribe the visible ticket text as much as possible.
 - matchNo must look like "\u5468\u4e00201" / "\u5468\u4e09202". Never use the long ticket number, barcode number, issue number, or store number as matchNo.
@@ -318,6 +319,10 @@ function deriveTicketFields(ticket: any) {
   const sourceText = `${raw}\n${ticket.selectionText || ""}`;
   const handicapItems = parseHandicapBetItems(sourceText);
   const selectionMatch = sourceText.match(/([\u80dc\u5e73\u8d1f])\s*@\s*(\d+(?:\.\d+)?)/);
+  const scoreMatch = raw.match(/(\d+)\s*[:\uFF1A-]\s*(\d+)\s*@\s*(\d+(?:\.\d+)?)/);
+  const totalGoalsMatch = raw.match(/\u603b\u8fdb\u7403\s*(\d+)\s*@?(\d+(?:\.\d+)?)?/);
+  const parenthesizedTotalGoalsMatch = raw.match(/\((\d+)\)\s*@\s*(\d+(?:\.\d+)?)/);
+  const realMatchNo = (raw.match(/\u5468[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]\s*\d{3}/)?.[0] || "").replace(/\s+/g, "");
   const explicitOutcomeSelection = extractSingleOutcomeSelection(sourceText);
 
   const stakeMatch = raw.match(/(?:\u5408\u8ba1|\u6295\u6ce8\u91d1\u989d|\u7968\u6b3e|\u91d1\u989d)\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/) || raw.match(/\u5408\s*\u8ba1\s*(\d+(?:\.\d{1,2})?)\s*\u5143/);
@@ -340,6 +345,32 @@ function deriveTicketFields(ticket: any) {
     ticket.playType = ZH.handicapSpf;
     ticket.betItems = handicapItems;
     ticket.selectionText = handicapItems.map((item) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} ${ZH.handicapSpf}(${item.handicap}) ${item.selection} @${item.odds}`).join("\uFF1B");
+  }
+
+  if (realMatchNo && ticket.betItems.length) {
+    ticket.betItems = ticket.betItems.map((item: BetItem) => ({
+      ...item,
+      matchNo: item.matchNo || realMatchNo,
+      market: normalizeMarketText(item.market, item.selection),
+    }));
+  }
+
+  if (!ticket.betItems.length) {
+    const teams = raw.match(/\u4e3b\u961f[:\uFF1A]?\s*([^\sVv]+)\s*[Vv][Ss]\s*\u5ba2\u961f[:\uFF1A]?\s*([^\s\u80dc\u5e73\u8d1f]+)/);
+    if (realMatchNo || teams || selectionMatch || scoreMatch || totalGoalsMatch || parenthesizedTotalGoalsMatch) {
+      const selection = scoreMatch
+        ? `${Number(scoreMatch[1])}:${Number(scoreMatch[2])}`
+        : totalGoalsMatch?.[1] || parenthesizedTotalGoalsMatch?.[1] || selectionMatch?.[1] || "";
+      ticket.betItems = [{
+        matchNo: realMatchNo,
+        homeTeam: teams?.[1] || "",
+        awayTeam: teams?.[2] || "",
+        selection,
+        odds: scoreMatch ? Number(scoreMatch[3]) : parenthesizedTotalGoalsMatch ? Number(parenthesizedTotalGoalsMatch[2]) : selectionMatch ? Number(selectionMatch[2]) : toNumberOrEmpty(totalGoalsMatch?.[2]),
+        handicap: "",
+        market: scoreMatch ? ZH.score : totalGoalsMatch || parenthesizedTotalGoalsMatch || raw.includes("\u603b\u8fdb\u7403\u6570") ? ZH.totalGoals : ZH.spf,
+      }];
+    }
   }
 
   if (explicitOutcomeSelection && ticket.betItems.length) {

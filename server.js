@@ -4,7 +4,7 @@ import multer from "multer";
 import OpenAI from "openai";
 import { createServer as createViteServer } from "vite";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,9 +12,34 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isProd = process.argv.includes("--prod") || process.env.NODE_ENV === "production";
 const port = Number(process.env.PORT || 5174);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
+const stateFile = path.join(__dirname, "data", "shared-state.json");
 
 const app = express();
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "20mb" }));
+
+app.get("/api/state", async (_req, res) => {
+  try {
+    if (!existsSync(stateFile)) {
+      return res.json({ data: null });
+    }
+    const data = JSON.parse(await readFile(stateFile, "utf8"));
+    res.json({ data });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "读取共享数据失败。" });
+  }
+});
+
+app.post("/api/state", async (req, res) => {
+  try {
+    await mkdir(path.dirname(stateFile), { recursive: true });
+    await writeFile(stateFile, JSON.stringify(req.body, null, 2), "utf8");
+    res.json({ ok: true, savedAt: new Date().toISOString() });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "保存共享数据失败。" });
+  }
+});
 
 app.post("/api/recognize-ticket", upload.single("image"), async (req, res) => {
   try {
@@ -51,6 +76,7 @@ Rules:
 - Example: 周三201 主队让2球 葡萄牙 vs 尼日利亚 平@3.550 => market=让球胜平负, selection=平, handicap=-2, odds=3.550.
 - For 比分: selection must be exact full-time score like 2:1.
 - For 总进球: selection must be the total-goals number as a string or number, e.g. 3.
+- If the ticket title says 竞彩足球总进球数 and the line says "(3)@3.400", market=总进球, selection=3, odds=3.400.
 - For 半全场: keep the printed selection text, but do not invent half-time scores.
 - selectionText should summarize match, teams, market, selection, odds and multiplier.
 - rawText is required. Transcribe the visible ticket text as much as possible.
@@ -316,6 +342,7 @@ function deriveTicketFields(ticket) {
   const selectionMatch = sourceText.match(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/);
   const scoreMatch = raw.match(/(\d+)\s*[:：-]\s*(\d+)\s*@(\d+(?:\.\d+)?)/);
   const totalGoalsMatch = raw.match(/总进球\s*(\d+)\s*@?(\d+(?:\.\d+)?)?/);
+  const parenthesizedTotalGoalsMatch = raw.match(/\((\d+)\)\s*@\s*(\d+(?:\.\d+)?)/);
   const realMatchNo = (raw.match(/周[一二三四五六日天]\s*\d{3}/)?.[0] || "").replace(/\s+/g, "");
   const explicitOutcomeSelection = extractSingleOutcomeSelection(sourceText);
 
@@ -337,18 +364,18 @@ function deriveTicketFields(ticket) {
 
   if (!ticket.betItems.length) {
     const teams = raw.match(/主队[:：]?\s*([^Vv\s]+)\s*[Vv][Ss]\s*客队[:：]?\s*([^\s胜平负]+)/);
-    if (realMatchNo || teams || selectionMatch || scoreMatch || totalGoalsMatch) {
+    if (realMatchNo || teams || selectionMatch || scoreMatch || totalGoalsMatch || parenthesizedTotalGoalsMatch) {
       const selection = scoreMatch
         ? `${Number(scoreMatch[1])}:${Number(scoreMatch[2])}`
-        : totalGoalsMatch?.[1] || selectionMatch?.[1] || "";
+        : totalGoalsMatch?.[1] || parenthesizedTotalGoalsMatch?.[1] || selectionMatch?.[1] || "";
       ticket.betItems = [{
         matchNo: realMatchNo,
         homeTeam: teams?.[1] || "",
         awayTeam: teams?.[2] || "",
         selection,
-        odds: scoreMatch ? Number(scoreMatch[3]) : selectionMatch ? Number(selectionMatch[2]) : toNumberOrEmpty(totalGoalsMatch?.[2]),
+        odds: scoreMatch ? Number(scoreMatch[3]) : parenthesizedTotalGoalsMatch ? Number(parenthesizedTotalGoalsMatch[2]) : selectionMatch ? Number(selectionMatch[2]) : toNumberOrEmpty(totalGoalsMatch?.[2]),
         handicap: "",
-        market: scoreMatch ? "比分" : totalGoalsMatch ? "总进球" : "胜平负",
+        market: scoreMatch ? "比分" : totalGoalsMatch || parenthesizedTotalGoalsMatch || raw.includes("总进球数") ? "总进球" : "胜平负",
       }];
     }
   }
