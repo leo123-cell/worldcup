@@ -55,6 +55,9 @@ Rules:
 - market must be one of: 胜平负, 让球胜平负, 比分, 总进球, 半全场, 其他.
 - For 胜平负: selection must be 胜, 平, or 负 from the home-team perspective.
 - For 让球胜平负: selection must still be 胜, 平, or 负 after applying handicap to the home team. handicap is the home-team handicap number, e.g. 主队让一球 => -1, 主队受让一球 => 1.
+- If the ticket line says 主队让2球 / 主队让 2 球, market must be 让球胜平负 and handicap must be -2.
+- If the ticket line says 主队受让2球, market must be 让球胜平负 and handicap must be 2.
+- Example: 周三201 主队让2球 葡萄牙 vs 尼日利亚 平@3.550 => market=让球胜平负, selection=平, handicap=-2, odds=3.550.
 - For 比分: selection must be exact full-time score like 2:1.
 - For 总进球: selection must be the total-goals number as a string or number, e.g. 3.
 - For 半全场: keep the printed selection text, but do not invent half-time scores.
@@ -221,9 +224,32 @@ function extractSingleOutcomeSelection(text: string) {
   return unique.length === 1 ? unique[0] : "";
 }
 
+function parseHandicapBetItems(text: string) {
+  const normalized = String(text || "").replace(/\r/g, "").replace(/[ \t]+/g, " ");
+  const pattern = /(?:第\d+场\s*)?(周[一二三四五六日天]\s*\d{3})\s*主队\s*(让|受让|计|[+-])?\s*([+-]?\d+(?:\.\d+)?)\s*球[\s\S]*?主队[:：]\s*([^\sVv]+)\s*[Vv][Ss]\s*客队[:：]\s*([^\s胜平负]+)[\s\S]*?([胜平负])\s*@\s*(\d+(?:\.\d+)?)/g;
+  return [...normalized.matchAll(pattern)].map((match) => {
+    const marker = match[2] || "让";
+    const rawLine = Number(match[3]);
+    const absLine = Math.abs(rawLine);
+    const handicap = marker.includes("受") || marker === "+" || rawLine > 0 && String(match[3]).startsWith("+")
+      ? absLine
+      : -absLine;
+    return {
+      matchNo: match[1].replace(/\s+/g, ""),
+      homeTeam: match[4],
+      awayTeam: match[5],
+      selection: match[6],
+      odds: Number(match[7]),
+      handicap,
+      market: "让球胜平负",
+    };
+  });
+}
+
 function deriveTicketFields(ticket: any) {
   const raw = ticket.rawText || "";
   const sourceText = `${raw}\n${ticket.selectionText || ""}`;
+  const handicapItems = parseHandicapBetItems(sourceText);
   const selectionMatch = sourceText.match(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/);
   const explicitOutcomeSelection = extractSingleOutcomeSelection(sourceText);
   const stakeMatch =
@@ -242,6 +268,14 @@ function deriveTicketFields(ticket: any) {
   if (!ticket.ticketNo) {
     const ticketNoMatch = raw.match(/\b([A-Z0-9]{16,}(?:\s+[A-Z0-9]{6,})*)\b/);
     if (ticketNoMatch) ticket.ticketNo = ticketNoMatch[1].replace(/\s+/g, " ");
+  }
+
+  if (handicapItems.length) {
+    ticket.playType = "让球胜平负";
+    ticket.betItems = handicapItems;
+    ticket.selectionText = handicapItems
+      .map((item: any) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} 让球胜平负(${item.handicap}) ${item.selection} @${item.odds}`)
+      .join("；");
   }
 
   if (explicitOutcomeSelection && ticket.betItems.length) {
