@@ -46,7 +46,7 @@ app.post("/api/recognize-ticket", upload.single("image"), async (req, res) => {
     if (!req.file) {
       return res.status(400).json({ error: "缺少图片文件。" });
     }
-    const provider = (process.env.AI_PROVIDER || "deepseek").toLowerCase();
+    const provider = (process.env.AI_PROVIDER || "qwen").toLowerCase();
     const apiKey = getApiKey(provider);
     if (!apiKey) {
       return res.status(400).json({ error: `未配置 ${provider.toUpperCase()} API key，无法调用大模型识别。` });
@@ -318,19 +318,23 @@ function parseHandicapBetItems(text) {
 function deriveTicketFields(ticket) {
   const raw = ticket.rawText || "";
   const sourceText = `${raw}\n${ticket.selectionText || ""}`;
+  const textFields = parseTicketText(sourceText);
   const handicapItems = parseHandicapBetItems(sourceText);
   const stakeMatch =
     raw.match(/(?:合计|投注金额|票款|金额)\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) ||
     raw.match(/合\s*计\s*(\d+(?:\.\d{1,2})?)\s*元/);
   if (stakeMatch) ticket.stakeAmount = Number(stakeMatch[1]);
+  if (!ticket.stakeAmount && textFields.stakeAmount) ticket.stakeAmount = textFields.stakeAmount;
 
   const prizeMatch =
     raw.match(/(?:本票)?最高可能固定奖金\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) ||
     raw.match(/最高奖金\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/);
   if (prizeMatch) ticket.estimatedPrize = Number(prizeMatch[1]);
+  if (!ticket.estimatedPrize && textFields.estimatedPrize) ticket.estimatedPrize = textFields.estimatedPrize;
 
   const multiplierMatch = raw.match(/(\d+)\s*倍/);
   if (multiplierMatch) ticket.multiplier = Number(multiplierMatch[1]);
+  if (!ticket.multiplier && textFields.multiplier) ticket.multiplier = textFields.multiplier;
 
   ticket.betItems = inferMissingBetValues(ticket);
 
@@ -352,6 +356,11 @@ function deriveTicketFields(ticket) {
     ticket.selectionText = handicapItems
       .map((item) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} 让球胜平负(${item.handicap}) ${item.selection} @${item.odds}`)
       .join("；");
+  }
+
+  if (textFields.betItems.length) {
+    ticket.betItems = textFields.betItems;
+    ticket.playType = textFields.playType || ticket.playType;
   }
 
   if (realMatchNo && ticket.betItems.length) {
@@ -398,8 +407,55 @@ function deriveTicketFields(ticket) {
       .map((item) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`)
       .join("；");
   }
+  if (ticket.selectionText.includes("中国体育彩票") && ticket.betItems.length) {
+    ticket.selectionText = ticket.betItems
+      .map((item) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`)
+      .join("；");
+  }
 
   return ticket;
+}
+
+function parseTicketText(text) {
+  const raw = String(text || "").replace(/\r/g, "");
+  const compact = raw.replace(/[ \t]+/g, " ");
+  const titleMarket = compact.includes("总进球数") ? "总进球"
+    : compact.includes("比分") ? "比分"
+      : compact.includes("让球") ? "让球胜平负"
+        : compact.includes("胜平负") ? "胜平负"
+          : "";
+  const stakeAmount = toNumberOrEmpty((compact.match(/合\s*计\s*(\d+(?:\.\d{1,2})?)\s*元/) || [])[1]);
+  const multiplier = toNumberOrEmpty((compact.match(/(\d+)\s*倍/) || [])[1]);
+  const estimatedPrize = toNumberOrEmpty((compact.match(/最高可能固定奖金\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) || [])[1]);
+  const betItems = parseVisibleBetItems(compact, titleMarket);
+  return { playType: titleMarket, stakeAmount, multiplier, estimatedPrize, betItems };
+}
+
+function parseVisibleBetItems(text, titleMarket = "") {
+  const items = [];
+  const pattern = /(?:第\d+场\s*)?(周[一二三四五六日天]\s*\d{3})\s*(?:主队\s*(让|受让)?\s*([+-]?\d+(?:\.\d+)?)\s*球)?[\s\S]*?主队[:：]\s*([^\sVv]+)\s*[Vv][Ss]\s*客队[:：]\s*([^\s胜平负]+?)\s+((?:\d+\s*[:：-]\s*\d+|\(\d+\)|[胜平负])\s*@\s*\d+(?:\.\d+)?)/g;
+  for (const match of text.matchAll(pattern)) {
+    const pick = match[6];
+    const score = pick.match(/(\d+)\s*[:：-]\s*(\d+)\s*@\s*(\d+(?:\.\d+)?)/);
+    const total = pick.match(/\((\d+)\)\s*@\s*(\d+(?:\.\d+)?)/);
+    const outcome = pick.match(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/);
+    const hasHandicap = Boolean(match[2] || match[3]);
+    const rawLine = Number(match[3] || 0);
+    const handicap = hasHandicap ? (match[2]?.includes("受") ? Math.abs(rawLine) : -Math.abs(rawLine)) : "";
+    const market = score ? "比分" : total || titleMarket === "总进球" ? "总进球" : hasHandicap ? "让球胜平负" : "胜平负";
+    const selection = score ? `${Number(score[1])}:${Number(score[2])}` : total ? total[1] : outcome?.[1] || "";
+    const odds = Number(score?.[3] || total?.[2] || outcome?.[2] || "");
+    items.push({
+      matchNo: match[1].replace(/\s+/g, ""),
+      homeTeam: match[4],
+      awayTeam: match[5],
+      selection,
+      odds: Number.isFinite(odds) ? odds : "",
+      handicap,
+      market,
+    });
+  }
+  return items;
 }
 
 function inferMissingBetValues(ticket) {

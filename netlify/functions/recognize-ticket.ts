@@ -317,6 +317,7 @@ function parseHandicapBetItems(text: string): BetItem[] {
 function deriveTicketFields(ticket: any) {
   const raw = ticket.rawText || "";
   const sourceText = `${raw}\n${ticket.selectionText || ""}`;
+  const textFields = parseTicketText(sourceText);
   const handicapItems = parseHandicapBetItems(sourceText);
   const selectionMatch = sourceText.match(/([\u80dc\u5e73\u8d1f])\s*@\s*(\d+(?:\.\d+)?)/);
   const scoreMatch = raw.match(/(\d+)\s*[:\uFF1A-]\s*(\d+)\s*@\s*(\d+(?:\.\d+)?)/);
@@ -327,12 +328,15 @@ function deriveTicketFields(ticket: any) {
 
   const stakeMatch = raw.match(/(?:\u5408\u8ba1|\u6295\u6ce8\u91d1\u989d|\u7968\u6b3e|\u91d1\u989d)\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/) || raw.match(/\u5408\s*\u8ba1\s*(\d+(?:\.\d{1,2})?)\s*\u5143/);
   if (stakeMatch) ticket.stakeAmount = Number(stakeMatch[1]);
+  if (!ticket.stakeAmount && textFields.stakeAmount) ticket.stakeAmount = textFields.stakeAmount;
 
   const prizeMatch = raw.match(/(?:\u672c\u7968)?\u6700\u9ad8\u53ef\u80fd\u56fa\u5b9a\u5956\u91d1\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/) || raw.match(/\u6700\u9ad8\u5956\u91d1\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/);
   if (prizeMatch) ticket.estimatedPrize = Number(prizeMatch[1]);
+  if (!ticket.estimatedPrize && textFields.estimatedPrize) ticket.estimatedPrize = textFields.estimatedPrize;
 
   const multiplierMatch = raw.match(/(\d+)\s*\u500d/);
   if (multiplierMatch) ticket.multiplier = Number(multiplierMatch[1]);
+  if (!ticket.multiplier && textFields.multiplier) ticket.multiplier = textFields.multiplier;
 
   ticket.betItems = inferMissingBetValues(ticket);
 
@@ -345,6 +349,11 @@ function deriveTicketFields(ticket: any) {
     ticket.playType = ZH.handicapSpf;
     ticket.betItems = handicapItems;
     ticket.selectionText = handicapItems.map((item) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} ${ZH.handicapSpf}(${item.handicap}) ${item.selection} @${item.odds}`).join("\uFF1B");
+  }
+
+  if (textFields.betItems.length) {
+    ticket.betItems = textFields.betItems;
+    ticket.playType = textFields.playType || ticket.playType;
   }
 
   if (realMatchNo && ticket.betItems.length) {
@@ -389,8 +398,53 @@ function deriveTicketFields(ticket: any) {
   if (!ticket.selectionText && ticket.betItems.length) {
     ticket.selectionText = ticket.betItems.map((item: BetItem) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`).join("\uFF1B");
   }
+  if (ticket.selectionText.includes("\u4e2d\u56fd\u4f53\u80b2\u5f69\u7968") && ticket.betItems.length) {
+    ticket.selectionText = ticket.betItems.map((item: BetItem) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`).join("\uFF1B");
+  }
 
   return ticket;
+}
+
+function parseTicketText(text: string) {
+  const raw = String(text || "").replace(/\r/g, "");
+  const compact = raw.replace(/[ \t]+/g, " ");
+  const titleMarket = compact.includes("\u603b\u8fdb\u7403\u6570") ? ZH.totalGoals
+    : compact.includes("\u6bd4\u5206") ? ZH.score
+      : compact.includes("\u8ba9\u7403") ? ZH.handicapSpf
+        : compact.includes("\u80dc\u5e73\u8d1f") ? ZH.spf
+          : "";
+  const stakeAmount = toNumberOrEmpty((compact.match(/\u5408\s*\u8ba1\s*(\d+(?:\.\d{1,2})?)\s*\u5143/) || [])[1]);
+  const multiplier = toNumberOrEmpty((compact.match(/(\d+)\s*\u500d/) || [])[1]);
+  const estimatedPrize = toNumberOrEmpty((compact.match(/\u6700\u9ad8\u53ef\u80fd\u56fa\u5b9a\u5956\u91d1\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/) || [])[1]);
+  const betItems = parseVisibleBetItems(compact, titleMarket);
+  return { playType: titleMarket, stakeAmount, multiplier, estimatedPrize, betItems };
+}
+
+function parseVisibleBetItems(text: string, titleMarket = ""): BetItem[] {
+  const items: BetItem[] = [];
+  const pattern = /(?:\u7b2c\d+\u573a\s*)?(\u5468[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]\s*\d{3})\s*(?:\u4e3b\u961f\s*(\u8ba9|\u53d7\u8ba9)?\s*([+-]?\d+(?:\.\d+)?)\s*\u7403)?[\s\S]*?\u4e3b\u961f[:\uFF1A]\s*([^\sVv]+)\s*[Vv][Ss]\s*\u5ba2\u961f[:\uFF1A]\s*([^\s\u80dc\u5e73\u8d1f]+?)\s+((?:\d+\s*[:\uFF1A-]\s*\d+|\(\d+\)|[\u80dc\u5e73\u8d1f])\s*@\s*\d+(?:\.\d+)?)/g;
+  for (const match of text.matchAll(pattern)) {
+    const pick = match[6];
+    const score = pick.match(/(\d+)\s*[:\uFF1A-]\s*(\d+)\s*@\s*(\d+(?:\.\d+)?)/);
+    const total = pick.match(/\((\d+)\)\s*@\s*(\d+(?:\.\d+)?)/);
+    const outcome = pick.match(/([\u80dc\u5e73\u8d1f])\s*@\s*(\d+(?:\.\d+)?)/);
+    const hasHandicap = Boolean(match[2] || match[3]);
+    const rawLine = Number(match[3] || 0);
+    const handicap = hasHandicap ? (match[2]?.includes("\u53d7") ? Math.abs(rawLine) : -Math.abs(rawLine)) : "";
+    const market = score ? ZH.score : total || titleMarket === ZH.totalGoals ? ZH.totalGoals : hasHandicap ? ZH.handicapSpf : ZH.spf;
+    const selection = score ? `${Number(score[1])}:${Number(score[2])}` : total ? total[1] : outcome?.[1] || "";
+    const odds = Number((score?.[3] || total?.[2] || outcome?.[2] || ""));
+    items.push({
+      matchNo: match[1].replace(/\s+/g, ""),
+      homeTeam: match[4],
+      awayTeam: match[5],
+      selection,
+      odds: Number.isFinite(odds) ? odds : "",
+      handicap,
+      market,
+    });
+  }
+  return items;
 }
 
 function inferMissingBetValues(ticket: any) {
