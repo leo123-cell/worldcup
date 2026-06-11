@@ -43,6 +43,17 @@ const statusClass = {
   void: "badge gray",
 };
 
+const passTypeOptions = [
+  "单关",
+  "2串1",
+  "3串1",
+  "4串1",
+  "5串1",
+  "6串1",
+  "7串1",
+  "8串1",
+];
+
 const defaultParticipants = [
   "新田",
   "老嘟",
@@ -477,6 +488,11 @@ function betOddsProduct(items) {
   return odds.reduce((product, value) => product * value, 1);
 }
 
+function suggestedPassType(items) {
+  const count = (items || []).length;
+  return count > 1 ? `${count}串1` : "单关";
+}
+
 function ticketDraftMath(form) {
   const multiplier = Number(form.multiplier || 0);
   const stakeUnits = Number(form.stakeUnits || 1);
@@ -887,7 +903,7 @@ function UploadView({ data, commit, locked }) {
     participantId: data.participants[0]?.id || "",
     ticketNo: "",
     purchaseTime: formatDateTimeInput(new Date()),
-    playType: "",
+    playType: "单关",
     stakeAmount: "",
     stakeUnits: "1",
     multiplier: "",
@@ -990,7 +1006,7 @@ function UploadView({ data, commit, locked }) {
       stakeUnits: "1",
       multiplier: "",
       estimatedPrize: "",
-      playType: "",
+      playType: "单关",
       selectionText: "",
       betItems: [],
       matchIds: [],
@@ -1034,7 +1050,11 @@ function UploadView({ data, commit, locked }) {
         <div className="fieldGrid">
           <label>票据UID<input value={makeTicketUid(data.participants.find((person) => person.id === form.participantId)?.name)} readOnly /></label>
           <label>购买时间<input type="datetime-local" value={form.purchaseTime} onChange={(e) => setForm({ ...form, purchaseTime: e.target.value })} /></label>
-          <label>玩法<input value={form.playType} onChange={(e) => setForm({ ...form, playType: e.target.value })} placeholder="混合过关 / 胜平负" /></label>
+          <label>过关方式
+            <select value={form.playType} onChange={(e) => setForm({ ...form, playType: e.target.value })}>
+              {passTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
           <label>投注金额<input type="number" min="0" step="0.01" value={form.stakeAmount} onChange={(e) => setForm({ ...form, stakeAmount: e.target.value })} /></label>
           <label>倍数<input type="number" min="0" step="1" value={form.multiplier} onChange={(e) => setForm({ ...form, multiplier: e.target.value })} /></label>
           <label>注数<input type="number" min="1" step="1" value={form.stakeUnits} onChange={(e) => setForm({ ...form, stakeUnits: e.target.value })} /></label>
@@ -1045,7 +1065,10 @@ function UploadView({ data, commit, locked }) {
           matches={data.matches}
           onChange={(betItems) => {
             const matchedIds = betItems.map((item) => findMatchForBet(item, data.matches)?.id).filter(Boolean);
-            setForm({ ...form, betItems, matchIds: Array.from(new Set([...form.matchIds, ...matchedIds])) });
+            const nextPassType = form.playType === "单关" || /^\d+串1$/.test(form.playType)
+              ? suggestedPassType(betItems)
+              : form.playType;
+            setForm({ ...form, playType: nextPassType, betItems, matchIds: Array.from(new Set([...form.matchIds, ...matchedIds])) });
           }}
         />
         <label>投注内容<textarea value={form.selectionText} onChange={(e) => setForm({ ...form, selectionText: e.target.value })} rows="3" /></label>
