@@ -121,21 +121,34 @@ async function recognizeWithOpenAI(client, imageUrl, prompt) {
 }
 
 async function recognizeWithChatCompletions(client, imageUrl, prompt, provider) {
-  const response = await client.chat.completions.create({
-    model: getModel(provider),
-    response_format: { type: "json_object" },
-    temperature: 0,
-    max_tokens: 1000,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: imageUrl } },
-        ],
-      },
-    ],
-  });
+  const messages = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: imageUrl } },
+      ],
+    },
+  ];
+  let response;
+  try {
+    response = await client.chat.completions.create({
+      model: getModel(provider),
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 1400,
+      messages,
+    });
+  } catch (error) {
+    const message = error.message || "";
+    if (!message.includes("response_format") && !message.includes("json_object")) throw error;
+    response = await client.chat.completions.create({
+      model: getModel(provider),
+      temperature: 0,
+      max_tokens: 1400,
+      messages,
+    });
+  }
   return response.choices?.[0]?.message?.content || "";
 }
 

@@ -1,5 +1,15 @@
 import OpenAI from "openai";
 
+type BetItem = {
+  matchNo: string;
+  homeTeam: string;
+  awayTeam: string;
+  selection: string;
+  odds: number | "";
+  handicap: number | "";
+  market: string;
+};
+
 export default async (req: Request) => {
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
@@ -10,6 +20,10 @@ export default async (req: Request) => {
     const file = form.get("image");
     if (!(file instanceof File)) {
       return json({ error: "缺少图片文件。" }, 400);
+    }
+
+    if (file.size > 5.5 * 1024 * 1024) {
+      return json({ error: "图片太大，请压缩到 5MB 左右后再上传。" }, 413);
     }
 
     const provider = (getEnv("AI_PROVIDER") || "qwen").toLowerCase();
@@ -33,8 +47,8 @@ export default async (req: Request) => {
     return json({ raw: output, parsed });
   } catch (error: any) {
     console.error(error);
-    const message = error?.message || "大模型识别失败。";
-    return json({ error: message }, 500);
+    const detail = error?.response?.data?.error?.message || error?.error?.message || error?.message || "大模型识别失败。";
+    return json({ error: `大模型识别失败：${detail}` }, 500);
   }
 };
 
@@ -46,22 +60,25 @@ export const config = {
 const prompt = `
 You are a Chinese sports lottery football ticket OCR assistant.
 Return JSON only. No Markdown.
-Top-level fields: ticketNo, issueNo, purchaseTime, playType, stakeAmount, multiplier, estimatedPrize, matchHints, betItems, selectionText, rawText, confidence, warnings.
+
+Top-level fields:
+ticketNo, issueNo, purchaseTime, playType, stakeAmount, multiplier, estimatedPrize, matchHints, betItems, selectionText, rawText, confidence, warnings.
+
+betItems is an array. Each item must include:
+matchNo, homeTeam, awayTeam, market, selection, odds, handicap.
+
 Rules:
-- stakeAmount must be the ticket total amount, such as 合计30元 => 30. Do not confuse odds like 平@3.280 with stake amount.
-- estimatedPrize must be 本票最高可能固定奖金 / 最高奖金, not stake amount.
-- multiplier is 倍数, such as 15倍 => 15.
-- betItems is an array. Each item must include: matchNo, homeTeam, awayTeam, market, selection, odds, handicap.
+- stakeAmount is ticket total amount, e.g. "合计20元" => 20.
+- estimatedPrize is "本票最高可能固定奖金" or "最高奖金".
+- multiplier is "倍数", e.g. "10倍" => 10.
 - market must be one of: 胜平负, 让球胜平负, 比分, 总进球, 半全场, 其他.
-- For 胜平负: selection must be 胜, 平, or 负 from the home-team perspective.
-- For 让球胜平负: selection must still be 胜, 平, or 负 after applying handicap to the home team. handicap is the home-team handicap number, e.g. 主队让一球 => -1, 主队受让一球 => 1.
-- If the ticket line says 主队让2球 / 主队让 2 球, market must be 让球胜平负 and handicap must be -2.
-- If the ticket line says 主队受让2球, market must be 让球胜平负 and handicap must be 2.
-- Example: 周三201 主队让2球 葡萄牙 vs 尼日利亚 平@3.550 => market=让球胜平负, selection=平, handicap=-2, odds=3.550.
-- For 比分: selection must be exact full-time score like 2:1.
-- For 总进球: selection must be the total-goals number as a string or number, e.g. 3.
-- For 半全场: keep the printed selection text, but do not invent half-time scores.
-- selectionText should summarize match, teams, market, selection, odds and multiplier.
+- 胜平负 selection must be 胜, 平, or 负 from the home-team perspective.
+- 让球胜平负 selection must be 胜, 平, or 负 after applying handicap to the home team.
+- "主队让2球" means market=让球胜平负 and handicap=-2.
+- "主队受让2球" means market=让球胜平负 and handicap=2.
+- Example: "周三201 主队让2球 主队:葡萄牙 Vs 客队:尼日利亚 平@3.550" => market=让球胜平负, selection=平, handicap=-2, odds=3.550.
+- 比分 selection must be exact full-time score like 2:1.
+- 总进球 selection must be the total goals number like 3.
 - rawText should transcribe important visible ticket text.
 - Use empty string or null for unreadable fields. Do not invent.
 `;
@@ -70,7 +87,7 @@ async function recognizeWithOpenAI(client: OpenAI, imageUrl: string) {
   const response = await client.responses.create({
     model: getModel("openai"),
     temperature: 0,
-    max_output_tokens: 1000,
+    max_output_tokens: 1400,
     input: [
       {
         role: "user",
@@ -80,32 +97,44 @@ async function recognizeWithOpenAI(client: OpenAI, imageUrl: string) {
         ],
       },
     ],
-    text: {
-      format: {
-        type: "json_object",
-      },
-    },
+    text: { format: { type: "json_object" } },
   });
   return response.output_text || "";
 }
 
 async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, provider: string) {
-  const response = await client.chat.completions.create({
-    model: getModel(provider),
-    response_format: { type: "json_object" },
-    temperature: 0,
-    max_tokens: 1000,
-    messages: [
-      {
-        role: "user",
-        content: [
-          { type: "text", text: prompt },
-          { type: "image_url", image_url: { url: imageUrl } },
-        ],
-      },
-    ],
-  });
-  return response.choices?.[0]?.message?.content || "";
+  const messages: any[] = [
+    {
+      role: "user",
+      content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: imageUrl } },
+      ],
+    },
+  ];
+
+  try {
+    const response = await client.chat.completions.create({
+      model: getModel(provider),
+      response_format: { type: "json_object" },
+      temperature: 0,
+      max_tokens: 1400,
+      messages,
+    });
+    return response.choices?.[0]?.message?.content || "";
+  } catch (error: any) {
+    const message = error?.message || "";
+    if (!message.includes("response_format") && !message.includes("json_object")) {
+      throw error;
+    }
+    const response = await client.chat.completions.create({
+      model: getModel(provider),
+      temperature: 0,
+      max_tokens: 1400,
+      messages,
+    });
+    return response.choices?.[0]?.message?.content || "";
+  }
 }
 
 function getEnv(name: string) {
@@ -131,7 +160,7 @@ function getModel(provider: string) {
 }
 
 function parseModelJson(text: string) {
-  const clean = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
+  const clean = String(text || "").trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
   try {
     return normalizeTicket(JSON.parse(clean));
   } catch {
@@ -170,7 +199,7 @@ function toNumberOrEmpty(value: unknown) {
   return Number.isFinite(number) ? number : "";
 }
 
-function normalizeBetItems(items: any[]) {
+function normalizeBetItems(items: any[]): BetItem[] {
   if (!Array.isArray(items)) return [];
   return items.map((item) => ({
     matchNo: toStringValue(item.matchNo),
@@ -224,7 +253,7 @@ function extractSingleOutcomeSelection(text: string) {
   return unique.length === 1 ? unique[0] : "";
 }
 
-function parseHandicapBetItems(text: string) {
+function parseHandicapBetItems(text: string): BetItem[] {
   const normalized = String(text || "").replace(/\r/g, "").replace(/[ \t]+/g, " ");
   const pattern = /(?:第\d+场\s*)?(周[一二三四五六日天]\s*\d{3})\s*主队\s*(让|受让|计|[+-])?\s*([+-]?\d+(?:\.\d+)?)\s*球[\s\S]*?主队[:：]\s*([^\sVv]+)\s*[Vv][Ss]\s*客队[:：]\s*([^\s胜平负]+)[\s\S]*?([胜平负])\s*@\s*(\d+(?:\.\d+)?)/g;
   return [...normalized.matchAll(pattern)].map((match) => {
@@ -252,6 +281,7 @@ function deriveTicketFields(ticket: any) {
   const handicapItems = parseHandicapBetItems(sourceText);
   const selectionMatch = sourceText.match(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/);
   const explicitOutcomeSelection = extractSingleOutcomeSelection(sourceText);
+
   const stakeMatch =
     raw.match(/(?:合计|投注金额|票款|金额)\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) ||
     raw.match(/合\s*计\s*(\d+(?:\.\d{1,2})?)\s*元/);
@@ -274,12 +304,12 @@ function deriveTicketFields(ticket: any) {
     ticket.playType = "让球胜平负";
     ticket.betItems = handicapItems;
     ticket.selectionText = handicapItems
-      .map((item: any) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} 让球胜平负(${item.handicap}) ${item.selection} @${item.odds}`)
+      .map((item) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} 让球胜平负(${item.handicap}) ${item.selection} @${item.odds}`)
       .join("；");
   }
 
   if (explicitOutcomeSelection && ticket.betItems.length) {
-    ticket.betItems = ticket.betItems.map((item: any) => {
+    ticket.betItems = ticket.betItems.map((item: BetItem) => {
       const market = normalizeMarketText(item.market, item.selection);
       if (market !== "胜平负" && market !== "让球胜平负") return item;
       return {
@@ -293,7 +323,7 @@ function deriveTicketFields(ticket: any) {
 
   if (!ticket.selectionText && ticket.betItems.length) {
     ticket.selectionText = ticket.betItems
-      .map((item: any) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`)
+      .map((item: BetItem) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`)
       .join("；");
   }
 
