@@ -403,9 +403,31 @@ function findMatchForBet(item, matches) {
 function estimatePrize(ticket) {
   if (Number(ticket.estimatedPrize) > 0) return Number(ticket.estimatedPrize);
   const multiplier = Number(ticket.multiplier || 1);
+  const stakeUnits = Number(ticket.stakeUnits || 1);
   const oddsProduct = (ticket.betItems || []).reduce((product, item) => product * Number(item.odds || 1), 1);
-  const estimate = 2 * multiplier * oddsProduct;
+  const estimate = 2 * multiplier * stakeUnits * oddsProduct;
   return Number.isFinite(estimate) ? Number(estimate.toFixed(2)) : 0;
+}
+
+function betOddsProduct(items) {
+  const odds = (items || []).map((item) => Number(item.odds || 0)).filter((value) => value > 0);
+  if (!odds.length) return 0;
+  return odds.reduce((product, value) => product * value, 1);
+}
+
+function ticketDraftMath(form) {
+  const multiplier = Number(form.multiplier || 0);
+  const stakeUnits = Number(form.stakeUnits || 1);
+  const oddsProduct = betOddsProduct(form.betItems);
+  const stakeAmount = multiplier > 0 && stakeUnits > 0 ? 2 * multiplier * stakeUnits : 0;
+  const estimatedPrize = multiplier > 0 && stakeUnits > 0 && oddsProduct > 0 ? 2 * multiplier * stakeUnits * oddsProduct : 0;
+  return {
+    multiplier,
+    stakeUnits,
+    oddsProduct,
+    stakeAmount: Number(stakeAmount.toFixed(2)),
+    estimatedPrize: Number(estimatedPrize.toFixed(2)),
+  };
 }
 
 function settleTicketByScores(ticket, matches) {
@@ -818,6 +840,7 @@ function UploadView({ data, commit, locked }) {
     purchaseTime: formatDateTimeInput(new Date()),
     playType: "",
     stakeAmount: "",
+    stakeUnits: "1",
     multiplier: "",
     estimatedPrize: "",
     selectionText: "",
@@ -855,6 +878,7 @@ function UploadView({ data, commit, locked }) {
         purchaseTime: purchaseTime || next.purchaseTime,
         stakeAmount: parsed.stakeAmount || fallbackParsed.stakeAmount || next.stakeAmount,
         multiplier: parsed.multiplier || next.multiplier,
+        stakeUnits: parsed.stakeAmount && parsed.multiplier ? String(Math.max(1, Math.round(Number(parsed.stakeAmount) / 2 / Number(parsed.multiplier)))) : next.stakeUnits,
         estimatedPrize: parsed.estimatedPrize || next.estimatedPrize,
         playType: parsed.playType || fallbackParsed.playType || next.playType,
         betItems,
@@ -924,6 +948,7 @@ function UploadView({ data, commit, locked }) {
       purchaseTime: form.purchaseTime,
       playType: form.playType.trim() || "未填写",
       stakeAmount: Number(form.stakeAmount),
+      stakeUnits: Number(form.stakeUnits || 1),
       multiplier: Number(form.multiplier || 0),
       estimatedPrize: Number(form.estimatedPrize || 0),
       actualPrize: 0,
@@ -949,6 +974,7 @@ function UploadView({ data, commit, locked }) {
       ...next,
       ticketNo: "",
       stakeAmount: "",
+      stakeUnits: "1",
       multiplier: "",
       estimatedPrize: "",
       playType: "",
@@ -982,12 +1008,24 @@ function UploadView({ data, commit, locked }) {
           <input type="file" accept="image/*" onChange={onFile} />
         </label>
         {ocrStatus && <div className="hint">{busy ? "处理中：" : ""}{ocrStatus}</div>}
+        {(() => {
+          const draftMath = ticketDraftMath(form);
+          return (
+            <div className="calcHint">
+              <span>理论投注金额：{money(draftMath.stakeAmount)} 元 = 2元 x {draftMath.multiplier || "-"} 倍 x {draftMath.stakeUnits || "-"} 注</span>
+              <span>赔率乘积：{draftMath.oddsProduct ? draftMath.oddsProduct.toFixed(3) : "-"}</span>
+              <span>理论最高奖金：{money(draftMath.estimatedPrize)} 元</span>
+              <button type="button" className="ghost compactBtn" onClick={() => setForm({ ...form, stakeAmount: draftMath.stakeAmount || form.stakeAmount, estimatedPrize: draftMath.estimatedPrize || form.estimatedPrize })}>套用计算值</button>
+            </div>
+          );
+        })()}
         <div className="fieldGrid">
           <label>票据UID<input value={makeTicketUid(data.participants.find((person) => person.id === form.participantId)?.name)} readOnly /></label>
           <label>购买时间<input type="datetime-local" value={form.purchaseTime} onChange={(e) => setForm({ ...form, purchaseTime: e.target.value })} /></label>
           <label>玩法<input value={form.playType} onChange={(e) => setForm({ ...form, playType: e.target.value })} placeholder="混合过关 / 胜平负" /></label>
           <label>投注金额<input type="number" min="0" step="0.01" value={form.stakeAmount} onChange={(e) => setForm({ ...form, stakeAmount: e.target.value })} /></label>
           <label>倍数<input type="number" min="0" step="1" value={form.multiplier} onChange={(e) => setForm({ ...form, multiplier: e.target.value })} /></label>
+          <label>注数<input type="number" min="1" step="1" value={form.stakeUnits} onChange={(e) => setForm({ ...form, stakeUnits: e.target.value })} /></label>
           <label>预计奖金<input type="number" min="0" step="0.01" value={form.estimatedPrize} onChange={(e) => setForm({ ...form, estimatedPrize: e.target.value })} /></label>
         </div>
         <BetItemsEditor

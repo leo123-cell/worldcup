@@ -10,6 +10,23 @@ type BetItem = {
   market: string;
 };
 
+const ZH = {
+  missingImage: "\u7f3a\u5c11\u56fe\u7247\u6587\u4ef6\u3002",
+  imageTooLarge: "\u56fe\u7247\u592a\u5927\uff0c\u8bf7\u538b\u7f29\u5230 5MB \u5de6\u53f3\u540e\u518d\u4e0a\u4f20\u3002",
+  noApiKey: "\u672a\u914d\u7f6e API key\uff0c\u65e0\u6cd5\u8c03\u7528\u5927\u6a21\u578b\u8bc6\u522b\u3002",
+  fail: "\u5927\u6a21\u578b\u8bc6\u522b\u5931\u8d25",
+  invalidJson: "\u6a21\u578b\u6ca1\u6709\u8fd4\u56de\u6709\u6548 JSON\u3002",
+  unknown: "\u672a\u77e5\u9519\u8bef\uff0c\u8bf7\u67e5\u770b Netlify Function \u65e5\u5fd7\u3002",
+  win: "\u80dc",
+  draw: "\u5e73",
+  lose: "\u8d1f",
+  spf: "\u80dc\u5e73\u8d1f",
+  handicapSpf: "\u8ba9\u7403\u80dc\u5e73\u8d1f",
+  score: "\u6bd4\u5206",
+  totalGoals: "\u603b\u8fdb\u7403",
+  halfFull: "\u534a\u5168\u573a",
+};
+
 export default async (req: Request) => {
   if (req.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
@@ -19,18 +36,17 @@ export default async (req: Request) => {
     const form = await req.formData();
     const file = form.get("image");
     if (!(file instanceof File)) {
-      return json({ error: "缺少图片文件。" }, 400);
+      return json({ error: ZH.missingImage }, 400);
     }
-
     if (file.size > 5.5 * 1024 * 1024) {
-      return json({ error: "图片太大，请压缩到 5MB 左右后再上传。" }, 413);
+      return json({ error: ZH.imageTooLarge }, 413);
     }
 
     const provider = (getEnv("AI_PROVIDER") || "qwen").toLowerCase();
     const model = getModel(provider);
     const apiKey = getApiKey(provider);
     if (!apiKey) {
-      return json({ error: `未配置 ${provider.toUpperCase()} API key，无法调用大模型识别。` }, 400);
+      return json({ error: `${provider.toUpperCase()} ${ZH.noApiKey}` }, 400);
     }
 
     const client = new OpenAI({
@@ -43,7 +59,7 @@ export default async (req: Request) => {
     const imageUrl = `data:${file.type || "image/jpeg"};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`;
     const output = provider === "openai"
       ? await recognizeWithOpenAI(client, imageUrl, model)
-      : await recognizeWithChatCompletions(client, imageUrl, provider, model);
+      : await recognizeWithChatCompletions(client, imageUrl, model);
     const parsed = parseModelJson(output);
     return json({ raw: output, parsed });
   } catch (error: any) {
@@ -52,7 +68,7 @@ export default async (req: Request) => {
     const model = getModel(provider);
     const detail = normalizeErrorMessage(error);
     return json({
-      error: detail.startsWith("大模型识别失败") ? detail : `大模型识别失败：${detail}`,
+      error: detail.startsWith(ZH.fail) ? detail : `${ZH.fail}: ${detail}`,
       provider,
       model,
     }, 500);
@@ -75,18 +91,21 @@ betItems is an array. Each item must include:
 matchNo, homeTeam, awayTeam, market, selection, odds, handicap.
 
 Rules:
-- stakeAmount is ticket total amount, e.g. "合计20元" => 20.
-- estimatedPrize is "本票最高可能固定奖金" or "最高奖金".
-- multiplier is "倍数", e.g. "10倍" => 10.
-- market must be one of: 胜平负, 让球胜平负, 比分, 总进球, 半全场, 其他.
-- 胜平负 selection must be 胜, 平, or 负 from the home-team perspective.
-- 让球胜平负 selection must be 胜, 平, or 负 after applying handicap to the home team.
-- "主队让2球" means market=让球胜平负 and handicap=-2.
-- "主队受让2球" means market=让球胜平负 and handicap=2.
-- Example: "周三201 主队让2球 主队:葡萄牙 Vs 客队:尼日利亚 平@3.550" => market=让球胜平负, selection=平, handicap=-2, odds=3.550.
-- 比分 selection must be exact full-time score like 2:1.
-- 总进球 selection must be the total goals number like 3.
+- stakeAmount is ticket total amount, e.g. "\u5408\u8ba120\u5143" => 20.
+- estimatedPrize is "\u672c\u7968\u6700\u9ad8\u53ef\u80fd\u56fa\u5b9a\u5956\u91d1" or "\u6700\u9ad8\u5956\u91d1".
+- multiplier is "\u500d\u6570", e.g. "10\u500d" => 10.
+- market must be one of: \u80dc\u5e73\u8d1f, \u8ba9\u7403\u80dc\u5e73\u8d1f, \u6bd4\u5206, \u603b\u8fdb\u7403, \u534a\u5168\u573a, \u5176\u4ed6.
+- \u80dc\u5e73\u8d1f selection must be \u80dc, \u5e73, or \u8d1f from the home-team perspective.
+- \u8ba9\u7403\u80dc\u5e73\u8d1f selection must be \u80dc, \u5e73, or \u8d1f after applying handicap to the home team.
+- "\u4e3b\u961f\u8ba92\u7403" means market=\u8ba9\u7403\u80dc\u5e73\u8d1f and handicap=-2.
+- "\u4e3b\u961f\u53d7\u8ba92\u7403" means market=\u8ba9\u7403\u80dc\u5e73\u8d1f and handicap=2.
+- Example: "\u5468\u4e09201 \u4e3b\u961f\u8ba92\u7403 \u4e3b\u961f:\u8461\u8404\u7259 Vs \u5ba2\u961f:\u5c3c\u65e5\u5229\u4e9a \u5e73@3.550" => market=\u8ba9\u7403\u80dc\u5e73\u8d1f, selection=\u5e73, handicap=-2, odds=3.550.
+- \u6bd4\u5206 selection must be exact full-time score like 2:1.
+- \u603b\u8fdb\u7403 selection must be the total goals number like 3.
 - rawText should transcribe important visible ticket text.
+- rawText is required. Transcribe the visible ticket text as much as possible.
+- matchNo must look like "\u5468\u4e00201" / "\u5468\u4e09202". Never use the long ticket number, barcode number, issue number, or store number as matchNo.
+- matchHints should be match numbers or team names only. Do not use "\u4e2d\u56fd\u4f53\u80b2\u5f69\u7968" as matchHints.
 - Use empty string or null for unreadable fields. Do not invent.
 `;
 
@@ -109,7 +128,7 @@ async function recognizeWithOpenAI(client: OpenAI, imageUrl: string, model: stri
   return response.output_text || "";
 }
 
-async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, provider: string, model: string) {
+async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, model: string) {
   const messages: any[] = [
     {
       role: "user",
@@ -131,9 +150,7 @@ async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, pr
     return response.choices?.[0]?.message?.content || "";
   } catch (error: any) {
     const message = error?.message || "";
-    if (!message.includes("response_format") && !message.includes("json_object")) {
-      throw error;
-    }
+    if (!message.includes("response_format") && !message.includes("json_object")) throw error;
     const response = await client.chat.completions.create({
       model,
       temperature: 0,
@@ -160,7 +177,7 @@ function normalizeErrorMessage(error: any) {
   try {
     return JSON.stringify(error);
   } catch {
-    return "未知错误，请查看 Netlify Function 日志。";
+    return ZH.unknown;
   }
 }
 
@@ -188,7 +205,7 @@ function parseModelJson(text: string) {
     return normalizeTicket(JSON.parse(clean));
   } catch {
     const match = clean.match(/\{[\s\S]*\}/);
-    if (!match) throw new Error("模型没有返回有效 JSON。");
+    if (!match) throw new Error(ZH.invalidJson);
     return normalizeTicket(JSON.parse(match[0]));
   }
 }
@@ -237,29 +254,29 @@ function normalizeBetItems(items: any[]): BetItem[] {
 
 function normalizeSelectionText(value: unknown) {
   const text = toStringValue(value);
-  const score = text.match(/(\d+)\s*[:：-]\s*(\d+)/);
+  const score = text.match(/(\d+)\s*[:\uFF1A-]\s*(\d+)/);
   if (score) return `${Number(score[1])}:${Number(score[2])}`;
   if (/^\d+$/.test(text)) return text;
-  if (text.includes("平")) return "平";
-  if (text.includes("负")) return "负";
-  if (text.includes("胜")) return "胜";
+  if (text.includes(ZH.draw)) return ZH.draw;
+  if (text.includes(ZH.lose)) return ZH.lose;
+  if (text.includes(ZH.win)) return ZH.win;
   return text;
 }
 
 function normalizeMarketText(value: unknown, selection = "") {
   const text = `${toStringValue(value)} ${toStringValue(selection)}`;
   const lower = text.toLowerCase();
-  if (text.includes("半全场") || lower.includes("half")) return "半全场";
-  if (text.includes("总进球") || lower.includes("total")) return "总进球";
-  if (text.includes("比分") || lower.includes("score")) return "比分";
-  if (text.includes("让球") || text.includes("让胜") || text.includes("让平") || text.includes("让负") || lower.includes("handicap") || lower.includes("let")) return "让球胜平负";
-  if (text.includes("胜") || text.includes("平") || text.includes("负")) return "胜平负";
-  return toStringValue(value) || "胜平负";
+  if (text.includes(ZH.halfFull) || lower.includes("half")) return ZH.halfFull;
+  if (text.includes(ZH.totalGoals) || lower.includes("total")) return ZH.totalGoals;
+  if (text.includes(ZH.score) || lower.includes("score")) return ZH.score;
+  if (text.includes("\u8ba9\u7403") || text.includes("\u8ba9\u80dc") || text.includes("\u8ba9\u5e73") || text.includes("\u8ba9\u8d1f") || lower.includes("handicap") || lower.includes("let")) return ZH.handicapSpf;
+  if (text.includes(ZH.win) || text.includes(ZH.draw) || text.includes(ZH.lose)) return ZH.spf;
+  return toStringValue(value) || ZH.spf;
 }
 
 function toHandicapNumber(value: unknown) {
   if (value === null || value === undefined || value === "") return "";
-  const text = String(value).replace("＋", "+").replace("－", "-");
+  const text = String(value).replace("\uFF0B", "+").replace("\uFF0D", "-");
   const number = Number(text.match(/[+-]?\d+(?:\.\d+)?/)?.[0]);
   return Number.isFinite(number) ? number : "";
 }
@@ -271,21 +288,19 @@ function toConfidence(value: unknown) {
 }
 
 function extractSingleOutcomeSelection(text: string) {
-  const matches = [...String(text || "").matchAll(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/g)];
+  const matches = [...String(text || "").matchAll(/([\u80dc\u5e73\u8d1f])\s*@\s*(\d+(?:\.\d+)?)/g)];
   const unique = [...new Set(matches.map((match) => match[1]))];
   return unique.length === 1 ? unique[0] : "";
 }
 
 function parseHandicapBetItems(text: string): BetItem[] {
   const normalized = String(text || "").replace(/\r/g, "").replace(/[ \t]+/g, " ");
-  const pattern = /(?:第\d+场\s*)?(周[一二三四五六日天]\s*\d{3})\s*主队\s*(让|受让|计|[+-])?\s*([+-]?\d+(?:\.\d+)?)\s*球[\s\S]*?主队[:：]\s*([^\sVv]+)\s*[Vv][Ss]\s*客队[:：]\s*([^\s胜平负]+)[\s\S]*?([胜平负])\s*@\s*(\d+(?:\.\d+)?)/g;
+  const pattern = /(?:\u7b2c\d+\u573a\s*)?(\u5468[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]\s*\d{3})\s*\u4e3b\u961f\s*(\u8ba9|\u53d7\u8ba9|\u8ba1|[+-])?\s*([+-]?\d+(?:\.\d+)?)\s*\u7403[\s\S]*?\u4e3b\u961f[:\uFF1A]\s*([^\sVv]+)\s*[Vv][Ss]\s*\u5ba2\u961f[:\uFF1A]\s*([^\s\u80dc\u5e73\u8d1f]+)[\s\S]*?([\u80dc\u5e73\u8d1f])\s*@\s*(\d+(?:\.\d+)?)/g;
   return [...normalized.matchAll(pattern)].map((match) => {
-    const marker = match[2] || "让";
+    const marker = match[2] || "\u8ba9";
     const rawLine = Number(match[3]);
     const absLine = Math.abs(rawLine);
-    const handicap = marker.includes("受") || marker === "+" || rawLine > 0 && String(match[3]).startsWith("+")
-      ? absLine
-      : -absLine;
+    const handicap = marker.includes("\u53d7") || marker === "+" || rawLine > 0 && String(match[3]).startsWith("+") ? absLine : -absLine;
     return {
       matchNo: match[1].replace(/\s+/g, ""),
       homeTeam: match[4],
@@ -293,7 +308,7 @@ function parseHandicapBetItems(text: string): BetItem[] {
       selection: match[6],
       odds: Number(match[7]),
       handicap,
-      market: "让球胜平负",
+      market: ZH.handicapSpf,
     };
   });
 }
@@ -302,21 +317,19 @@ function deriveTicketFields(ticket: any) {
   const raw = ticket.rawText || "";
   const sourceText = `${raw}\n${ticket.selectionText || ""}`;
   const handicapItems = parseHandicapBetItems(sourceText);
-  const selectionMatch = sourceText.match(/([胜平负])\s*@\s*(\d+(?:\.\d+)?)/);
+  const selectionMatch = sourceText.match(/([\u80dc\u5e73\u8d1f])\s*@\s*(\d+(?:\.\d+)?)/);
   const explicitOutcomeSelection = extractSingleOutcomeSelection(sourceText);
 
-  const stakeMatch =
-    raw.match(/(?:合计|投注金额|票款|金额)\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) ||
-    raw.match(/合\s*计\s*(\d+(?:\.\d{1,2})?)\s*元/);
+  const stakeMatch = raw.match(/(?:\u5408\u8ba1|\u6295\u6ce8\u91d1\u989d|\u7968\u6b3e|\u91d1\u989d)\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/) || raw.match(/\u5408\s*\u8ba1\s*(\d+(?:\.\d{1,2})?)\s*\u5143/);
   if (stakeMatch) ticket.stakeAmount = Number(stakeMatch[1]);
 
-  const prizeMatch =
-    raw.match(/(?:本票)?最高可能固定奖金\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/) ||
-    raw.match(/最高奖金\s*[:：]?\s*(\d+(?:\.\d{1,2})?)\s*元/);
+  const prizeMatch = raw.match(/(?:\u672c\u7968)?\u6700\u9ad8\u53ef\u80fd\u56fa\u5b9a\u5956\u91d1\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/) || raw.match(/\u6700\u9ad8\u5956\u91d1\s*[:\uFF1A]?\s*(\d+(?:\.\d{1,2})?)\s*\u5143/);
   if (prizeMatch) ticket.estimatedPrize = Number(prizeMatch[1]);
 
-  const multiplierMatch = raw.match(/(\d+)\s*倍/);
+  const multiplierMatch = raw.match(/(\d+)\s*\u500d/);
   if (multiplierMatch) ticket.multiplier = Number(multiplierMatch[1]);
+
+  ticket.betItems = inferMissingBetValues(ticket);
 
   if (!ticket.ticketNo) {
     const ticketNoMatch = raw.match(/\b([A-Z0-9]{16,}(?:\s+[A-Z0-9]{6,})*)\b/);
@@ -324,17 +337,15 @@ function deriveTicketFields(ticket: any) {
   }
 
   if (handicapItems.length) {
-    ticket.playType = "让球胜平负";
+    ticket.playType = ZH.handicapSpf;
     ticket.betItems = handicapItems;
-    ticket.selectionText = handicapItems
-      .map((item) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} 让球胜平负(${item.handicap}) ${item.selection} @${item.odds}`)
-      .join("；");
+    ticket.selectionText = handicapItems.map((item) => `${item.matchNo} ${item.homeTeam} vs ${item.awayTeam} ${ZH.handicapSpf}(${item.handicap}) ${item.selection} @${item.odds}`).join("\uFF1B");
   }
 
   if (explicitOutcomeSelection && ticket.betItems.length) {
     ticket.betItems = ticket.betItems.map((item: BetItem) => {
       const market = normalizeMarketText(item.market, item.selection);
-      if (market !== "胜平负" && market !== "让球胜平负") return item;
+      if (market !== ZH.spf && market !== ZH.handicapSpf) return item;
       return {
         ...item,
         selection: explicitOutcomeSelection,
@@ -345,12 +356,32 @@ function deriveTicketFields(ticket: any) {
   }
 
   if (!ticket.selectionText && ticket.betItems.length) {
-    ticket.selectionText = ticket.betItems
-      .map((item: BetItem) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`)
-      .join("；");
+    ticket.selectionText = ticket.betItems.map((item: BetItem) => `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${item.market || ""} ${item.selection || ""}${item.odds ? ` @${item.odds}` : ""}`).join("\uFF1B");
   }
 
   return ticket;
+}
+
+function inferMissingBetValues(ticket: any) {
+  if (!Array.isArray(ticket.betItems)) return [];
+  const items = ticket.betItems.map((item: BetItem) => {
+    const matchNo = /^\u5468[\u4e00\u4e8c\u4e09\u56db\u4e94\u516d\u65e5\u5929]\d{3}$/.test(String(item.matchNo || ""))
+      ? item.matchNo
+      : "";
+    return { ...item, matchNo };
+  });
+  if (items.length !== 1) return items;
+  const item = items[0];
+  if (Number(item.odds) > 0) return items;
+  const stakeAmount = Number(ticket.stakeAmount || 0);
+  const estimatedPrize = Number(ticket.estimatedPrize || 0);
+  if (stakeAmount > 0 && estimatedPrize > 0) {
+    const odds = estimatedPrize / stakeAmount;
+    if (Number.isFinite(odds) && odds > 1) {
+      return [{ ...item, odds: Number(odds.toFixed(3)) }];
+    }
+  }
+  return items;
 }
 
 function json(body: unknown, status = 200) {

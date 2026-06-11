@@ -53,7 +53,9 @@ Rules:
 - For 总进球: selection must be the total-goals number as a string or number, e.g. 3.
 - For 半全场: keep the printed selection text, but do not invent half-time scores.
 - selectionText should summarize match, teams, market, selection, odds and multiplier.
-- rawText should transcribe important visible ticket text.
+- rawText is required. Transcribe the visible ticket text as much as possible.
+- matchNo must look like "周一201" / "周三202". Never use the long ticket number, barcode number, issue number, or store number as matchNo.
+- matchHints should be match numbers or team names only. Do not use "中国体育彩票" as matchHints.
 - Use empty string or null for unreadable fields. Do not invent.
 `;
 
@@ -72,7 +74,8 @@ Rules:
           "当前 DeepSeek API 端点没有接受图片输入。请换成支持视觉输入的 DeepSeek 兼容端点/模型，或把 AI_PROVIDER 改为 openai/qwen。",
       });
     }
-    res.status(500).json({ error: message });
+    const provider = (process.env.AI_PROVIDER || "qwen").toLowerCase();
+    res.status(500).json({ error: message, provider, model: getModel(provider) });
   }
 });
 
@@ -303,6 +306,8 @@ function deriveTicketFields(ticket) {
   const multiplierMatch = raw.match(/(\d+)\s*倍/);
   if (multiplierMatch) ticket.multiplier = Number(multiplierMatch[1]);
 
+  ticket.betItems = inferMissingBetValues(ticket);
+
   if (!ticket.ticketNo) {
     const ticketNoMatch = raw.match(/\b([A-Z0-9]{16,}(?:\s+[A-Z0-9]{6,})*)\b/);
     if (ticketNoMatch) ticket.ticketNo = ticketNoMatch[1].replace(/\s+/g, " ");
@@ -368,4 +373,26 @@ function deriveTicketFields(ticket) {
   }
 
   return ticket;
+}
+
+function inferMissingBetValues(ticket) {
+  if (!Array.isArray(ticket.betItems)) return [];
+  const items = ticket.betItems.map((item) => {
+    const matchNo = /^周[一二三四五六日天]\d{3}$/.test(String(item.matchNo || ""))
+      ? item.matchNo
+      : "";
+    return { ...item, matchNo };
+  });
+  if (items.length !== 1) return items;
+  const item = items[0];
+  if (Number(item.odds) > 0) return items;
+  const stakeAmount = Number(ticket.stakeAmount || 0);
+  const estimatedPrize = Number(ticket.estimatedPrize || 0);
+  if (stakeAmount > 0 && estimatedPrize > 0) {
+    const odds = estimatedPrize / stakeAmount;
+    if (Number.isFinite(odds) && odds > 1) {
+      return [{ ...item, odds: Number(odds.toFixed(3)) }];
+    }
+  }
+  return items;
 }
