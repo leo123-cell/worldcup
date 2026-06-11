@@ -642,8 +642,6 @@ input:focus, select:focus, textarea:focus {
   background: #f8fafc;
 }
 
-.ocrText { min-height: 220px; }
-
 .empty {
   border: 1px dashed var(--line-strong);
   border-radius: 8px;

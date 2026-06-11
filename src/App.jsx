@@ -578,63 +578,6 @@ function computeRows(participants, tickets) {
     });
 }
 
-function parseOcrText(text) {
-  const compact = text.replace(/\s+/g, " ");
-  const moneyMatch =
-    compact.match(/(?:合计|金额|投注金额|票款|人民币)[^\d]{0,8}(\d+(?:\.\d{1,2})?)/) ||
-    compact.match(/(\d+(?:\.\d{1,2})?)\s*元/);
-  const ticketMatch =
-    compact.match(/(?:票号|序列号|流水号)[^\dA-Z]{0,8}([A-Z0-9-]{6,})/i) ||
-    compact.match(/\b([A-Z0-9]{12,})\b/i);
-  const playMatch = compact.match(/(竞彩足球|胜平负|比分|总进球|半全场|混合过关|单关|串关)/);
-  const matchNos = [...compact.matchAll(/周[一二三四五六日天]\s*\d{3}|[0-9]{3}/g)]
-    .map((item) => item[0].replace(/\s+/g, ""))
-    .slice(0, 6);
-
-  return {
-    ticketNo: ticketMatch ? ticketMatch[1] : "",
-    stakeAmount: moneyMatch ? moneyMatch[1] : "",
-    playType: playMatch ? playMatch[1] : "",
-    matchHints: Array.from(new Set(matchNos)).join("、"),
-  };
-}
-
-async function recognizeTicket(file) {
-  const formData = new FormData();
-  formData.append("image", file);
-  const response = await fetch("/api/recognize-ticket", {
-    method: "POST",
-    body: formData,
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const context = [result.provider, result.model].filter(Boolean).join(" / ");
-    throw new Error(`${result.error || "大模型识别失败。"}${context ? `（${context}）` : ""}`);
-  }
-  return result;
-}
-
-function modelResultToText(result) {
-  const parsed = result.parsed || {};
-  const lines = [
-    parsed.rawText,
-    parsed.ticketNo ? `票号：${parsed.ticketNo}` : "",
-    parsed.issueNo ? `期号：${parsed.issueNo}` : "",
-    parsed.playType ? `玩法：${parsed.playType}` : "",
-    parsed.stakeAmount ? `投注金额：${parsed.stakeAmount}` : "",
-    parsed.multiplier ? `倍数：${parsed.multiplier}` : "",
-    parsed.estimatedPrize ? `预计最高奖金：${parsed.estimatedPrize}` : "",
-    parsed.betItems?.length ? `结构化投注：${parsed.betItems.map((item) => {
-      const market = normalizeMarket(item.market || item.playType, item.selection);
-      const handicap = market === "让球胜平负" && item.handicap !== "" && item.handicap !== undefined ? `(${item.handicap})` : "";
-      return `${item.matchNo || ""} ${item.homeTeam || ""} vs ${item.awayTeam || ""} ${market}${handicap} ${item.selection || ""}@${item.odds || ""}`;
-    }).join("；")}` : "",
-    parsed.selectionText ? `投注内容：${parsed.selectionText}` : "",
-    parsed.warnings?.length ? `提示：${parsed.warnings.join("；")}` : "",
-  ].filter(Boolean);
-  return lines.join("\n") || result.raw || "";
-}
-
 function normalizeModelDateTime(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -846,7 +789,7 @@ function EventBanner({ rows, stats }) {
 function pageTitle(tab) {
   return {
     rank: "实时排行榜",
-    upload: "上传与 AI 识别",
+    upload: "上传票据",
     tickets: "票据管理",
     people: "参与者管理",
     matches: "世界杯赛程",
@@ -953,50 +896,15 @@ function UploadView({ data, commit, locked }) {
     betItems: [],
     matchIds: [],
     imageUrl: "",
-    ocrRawText: "",
   });
-  const [ocrStatus, setOcrStatus] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
 
   async function onFile(event) {
     const file = event.target.files?.[0];
     if (!file) return;
     const imageUrl = await compressImageFile(file);
     setForm((next) => ({ ...next, imageUrl }));
-    setBusy(true);
-    setOcrStatus("大模型识别中，复杂票据可能需要十几秒");
-    try {
-      const result = await recognizeTicket(file);
-      const parsed = result.parsed || {};
-      const fallbackParsed = parseOcrText(result.raw || parsed.rawText || "");
-      const modelText = modelResultToText(result);
-      const selectionParts = [
-        ...(parsed.matchHints || []),
-        parsed.selectionText,
-      ].filter(Boolean);
-      const purchaseTime = normalizeModelDateTime(parsed.purchaseTime);
-      const betItems = Array.isArray(parsed.betItems) ? parsed.betItems : [];
-      const matchedIds = betItems.map((item) => findMatchForBet(item, data.matches)?.id).filter(Boolean);
-      setForm((next) => ({
-        ...next,
-        ocrRawText: modelText,
-        ticketNo: parsed.ticketNo || fallbackParsed.ticketNo || next.ticketNo,
-        purchaseTime: purchaseTime || next.purchaseTime,
-        stakeAmount: parsed.stakeAmount || fallbackParsed.stakeAmount || next.stakeAmount,
-        multiplier: parsed.multiplier || next.multiplier,
-        stakeUnits: parsed.stakeAmount && parsed.multiplier ? String(Math.max(1, Math.round(Number(parsed.stakeAmount) / 2 / Number(parsed.multiplier)))) : next.stakeUnits,
-        estimatedPrize: parsed.estimatedPrize || next.estimatedPrize,
-        playType: parsed.playType || fallbackParsed.playType || next.playType,
-        betItems,
-        matchIds: Array.from(new Set([...next.matchIds, ...matchedIds])),
-        selectionText: next.selectionText || selectionParts.join("；") || fallbackParsed.matchHints,
-      }));
-      setOcrStatus(`大模型识别完成${parsed.confidence ? `，置信度 ${Math.round(parsed.confidence * 100)}%` : ""}，请人工校正`);
-    } catch (error) {
-      setOcrStatus(`大模型识别失败：${error.message || "请手动录入"}`);
-    } finally {
-      setBusy(false);
-    }
+    setUploadStatus("图片已上传，请手动填写票据信息和投注项。");
   }
 
   function submit(event) {
@@ -1059,7 +967,6 @@ function UploadView({ data, commit, locked }) {
       estimatedPrize: Number(form.estimatedPrize || 0),
       actualPrize: 0,
       status: "pending_match",
-      ocrRawText: form.ocrRawText,
       matchIds: selectedMatches.map((match) => match.id),
       betItems: form.betItems.map((item) => ({
         ...item,
@@ -1088,9 +995,8 @@ function UploadView({ data, commit, locked }) {
       betItems: [],
       matchIds: [],
       imageUrl: "",
-      ocrRawText: "",
     }));
-    setOcrStatus("已保存为待比赛票据");
+    setUploadStatus("已保存为待比赛票据");
   }
 
   return (
@@ -1099,7 +1005,7 @@ function UploadView({ data, commit, locked }) {
         <div className="panelHeader">
           <div>
             <h2>上传体彩单</h2>
-            <p>大模型自动识别票据，保存前必须人工确认。</p>
+            <p>上传票据图片后手动填写字段，提交无需等待识别。</p>
           </div>
         </div>
         <label>
@@ -1110,10 +1016,10 @@ function UploadView({ data, commit, locked }) {
         </label>
         <label className="fileDrop">
           <FileImage size={24} />
-          <span>{form.imageUrl ? "已选择图片，可重新上传" : "选择票据图片并 AI 识别"}</span>
+          <span>{form.imageUrl ? "已选择图片，可重新上传" : "选择票据图片"}</span>
           <input type="file" accept="image/*" onChange={onFile} />
         </label>
-        {ocrStatus && <div className="hint">{busy ? "处理中：" : ""}{ocrStatus}</div>}
+        {uploadStatus && <div className="hint">{uploadStatus}</div>}
         {(() => {
           const draftMath = ticketDraftMath(form);
           return (
@@ -1143,18 +1049,12 @@ function UploadView({ data, commit, locked }) {
           }}
         />
         <label>投注内容<textarea value={form.selectionText} onChange={(e) => setForm({ ...form, selectionText: e.target.value })} rows="3" /></label>
-        <button className="primary wide" disabled={busy || locked}><Check size={17} /> 确认提交</button>
+        <button className="primary wide" disabled={locked}><Check size={17} /> 确认提交</button>
       </form>
 
       <div className="panel previewPanel">
-        <h2>识别预览</h2>
+        <h2>票据预览</h2>
         {form.imageUrl ? <img src={form.imageUrl} alt="票据预览" /> : <div className="empty">上传后显示票据图片</div>}
-        <textarea
-          className="ocrText"
-          value={form.ocrRawText}
-          onChange={(event) => setForm({ ...form, ocrRawText: event.target.value })}
-          placeholder="AI 识别原文会显示在这里，也可以手动粘贴修改。"
-        />
       </div>
     </section>
   );
@@ -1214,7 +1114,7 @@ function BetItemsEditor({ items, matches, onChange }) {
       <div className="betEditorHeader">
         <div>
           <strong>字段化投注项</strong>
-          <span>AI 识别失败也可以手动补全</span>
+          <span>手动填写每一场比赛、玩法、选择和赔率</span>
         </div>
         <button className="ghost compactBtn" type="button" onClick={addItem}><Plus size={15} /> 新增投注项</button>
       </div>
