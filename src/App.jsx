@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 const STORAGE_KEY = "worldcup-betting-tracker-v1";
+const LOCAL_BACKUP_KEY = "worldcup-betting-tracker-backup-v1";
 const SCORE_DRAFT_KEY = "worldcup-score-drafts-v1";
 const BASE_AMOUNT = 100;
 const CLOSE_MINUTES = 5;
@@ -278,6 +279,13 @@ function migrateData(data) {
 
 function saveData(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function saveLocalBackup(data) {
+  localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({
+    backedUpAt: new Date().toISOString(),
+    data,
+  }));
 }
 
 function loadScoreDrafts() {
@@ -655,15 +663,27 @@ export default function App() {
 
   React.useEffect(() => {
     let alive = true;
+    const localBeforeSync = data;
     loadSharedData()
       .then((shared) => {
         if (!alive) return;
         if (shared) {
+          const localTicketCount = (localBeforeSync.tickets || []).length;
+          const sharedTicketCount = (shared.tickets || []).length;
+          if (sharedTicketCount === 0 && localTicketCount > 0) {
+            saveSharedData(localBeforeSync)
+              .then(() => setSyncStatus("线上票据为空，已用本机历史票据恢复共享数据。"))
+              .catch((error) => setSyncStatus(`共享恢复失败：${error.message}`));
+            return;
+          }
+          if (localTicketCount > sharedTicketCount) {
+            saveLocalBackup(localBeforeSync);
+          }
           setData(shared);
           saveData(shared);
           setSyncStatus(`共享数据已同步：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
-        } else if ((data.tickets || []).length) {
-          saveSharedData(data)
+        } else if ((localBeforeSync.tickets || []).length) {
+          saveSharedData(localBeforeSync)
             .then(() => setSyncStatus("已将本机历史票据发布到共享数据。"))
             .catch((error) => setSyncStatus(`共享保存失败：${error.message}`));
         } else {

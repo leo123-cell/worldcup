@@ -33,6 +33,23 @@ app.get("/api/state", async (_req, res) => {
 app.post("/api/state", async (req, res) => {
   try {
     await mkdir(path.dirname(stateFile), { recursive: true });
+    let current = null;
+    if (existsSync(stateFile)) {
+      current = JSON.parse(await readFile(stateFile, "utf8"));
+    }
+    const currentTickets = Array.isArray(current?.tickets) ? current.tickets.length : 0;
+    const nextTickets = Array.isArray(req.body?.tickets) ? req.body.tickets.length : 0;
+    if (currentTickets > 0 && nextTickets === 0) {
+      return res.status(409).json({
+        error: "已拦截空票据数据覆盖。请先刷新页面再操作。",
+        currentTickets,
+        nextTickets,
+      });
+    }
+    if (current) {
+      const backupFile = path.join(path.dirname(stateFile), `shared-state-backup-${Date.now()}.json`);
+      await writeFile(backupFile, JSON.stringify(current, null, 2), "utf8");
+    }
     await writeFile(stateFile, JSON.stringify(req.body, null, 2), "utf8");
     res.json({ ok: true, savedAt: new Date().toISOString() });
   } catch (error) {
