@@ -674,6 +674,14 @@ export default function App() {
     });
   }
 
+  function replaceTicket(ticketId, nextTicket) {
+    const nextData = {
+      ...data,
+      tickets: data.tickets.map((ticket) => ticket.id === ticketId ? { ...nextTicket, updatedAt: new Date().toISOString() } : ticket),
+    };
+    commit(settleTicketsByScores(nextData));
+  }
+
   function removeTicket(ticketId) {
     commit({ ...data, tickets: data.tickets.filter((ticket) => ticket.id !== ticketId) });
   }
@@ -751,6 +759,7 @@ export default function App() {
             participantFilter={ticketParticipantFilter}
             setParticipantFilter={setTicketParticipantFilter}
             updateTicket={updateTicket}
+            replaceTicket={replaceTicket}
             removeTicket={removeTicket}
           />
         )}
@@ -1200,7 +1209,25 @@ function BetItemsEditor({ items, matches, onChange }) {
   );
 }
 
-function TicketsView({ data, filter, setFilter, participantFilter, setParticipantFilter, updateTicket, removeTicket }) {
+function ticketToEditForm(ticket) {
+  return {
+    participantId: ticket.participantId || "",
+    purchaseTime: ticket.purchaseTime || formatDateTimeInput(new Date()),
+    playType: ticket.playType || "单关",
+    stakeAmount: ticket.stakeAmount ?? "",
+    stakeUnits: ticket.stakeUnits ?? "1",
+    multiplier: ticket.multiplier ?? "",
+    estimatedPrize: ticket.estimatedPrize ?? "",
+    selectionText: ticket.selectionText || "",
+    betItems: (ticket.betItems || []).map((item) => ({ ...item })),
+    matchIds: [...(ticket.matchIds || [])],
+    imageUrl: ticket.imageUrl || "",
+  };
+}
+
+function TicketsView({ data, filter, setFilter, participantFilter, setParticipantFilter, updateTicket, replaceTicket, removeTicket }) {
+  const [editingId, setEditingId] = useState("");
+  const [editForm, setEditForm] = useState(null);
   const tickets = data.tickets
     .filter((ticket) => filter === "all" || ticket.status === filter)
     .filter((ticket) => participantFilter === "all" || ticket.participantId === participantFilter)
@@ -1213,6 +1240,73 @@ function TicketsView({ data, filter, setFilter, participantFilter, setParticipan
   const ticketCountText = participantFilter === "all"
     ? `当前显示 ${tickets.length} 张票据`
     : `${selectedParticipant?.name || "该参与者"} 当前显示 ${tickets.length} 张票据`;
+
+  function startEdit(ticket) {
+    setEditingId(ticket.id);
+    setEditForm(ticketToEditForm(ticket));
+  }
+
+  function cancelEdit() {
+    setEditingId("");
+    setEditForm(null);
+  }
+
+  async function replaceEditImage(file) {
+    if (!file || !editForm) return;
+    const imageUrl = await compressImageFile(file);
+    setEditForm({ ...editForm, imageUrl });
+  }
+
+  function saveEdit(ticket) {
+    if (!editForm) return;
+    if (!Number(editForm.stakeAmount)) {
+      alert("请填写有效投注金额。");
+      return;
+    }
+    const matchedIds = new Set(editForm.matchIds || []);
+    editForm.betItems.forEach((item) => {
+      const matched = findMatchForBet(item, data.matches);
+      if (matched) matchedIds.add(matched.id);
+    });
+    const selectedMatches = Array.from(matchedIds).map((id) => data.matches.find((match) => match.id === id)).filter(Boolean);
+    const gate = canSubmitTicket(selectedMatches, editForm.purchaseTime);
+    if (!gate.ok) {
+      alert(gate.reason);
+      return;
+    }
+    const normalizedBetItems = editForm.betItems.map((item) => {
+      const matched = findMatchForBet(item, selectedMatches);
+      return {
+        ...item,
+        matchId: matched?.id || item.matchId || "",
+        matchUid: matched?.matchUid || item.matchUid || "",
+        matchNo: matched?.matchNo || item.matchNo || "",
+        market: normalizeMarket(item.market || item.playType || editForm.playType, item.selection),
+        handicap: item.handicap === "" || item.handicap === undefined || item.handicap === null ? "" : Number(item.handicap),
+        selection: normalizeSelection(item.selection),
+        odds: Number(item.odds || 0),
+      };
+    });
+    replaceTicket(ticket.id, {
+      ...ticket,
+      participantId: editForm.participantId,
+      imageUrl: editForm.imageUrl,
+      purchaseTime: editForm.purchaseTime,
+      playType: editForm.playType || "单关",
+      stakeAmount: Number(editForm.stakeAmount),
+      stakeUnits: Number(editForm.stakeUnits || 1),
+      multiplier: Number(editForm.multiplier || 0),
+      estimatedPrize: Number(editForm.estimatedPrize || 0),
+      actualPrize: 0,
+      status: "pending_match",
+      settledAt: null,
+      settledBy: null,
+      matchIds: selectedMatches.map((match) => match.id),
+      betItems: normalizedBetItems,
+      selectionText: editForm.selectionText.trim(),
+    });
+    cancelEdit();
+  }
 
   return (
     <section className="contentStack">
@@ -1261,6 +1355,9 @@ function TicketsView({ data, filter, setFilter, participantFilter, setParticipan
                 <p className="selection">{ticket.selectionText || "未填写投注内容"}</p>
                 <div className="cardActions">
                   <span className="autoSettleNote">{autoSettleReason(ticket, data.matches)}</span>
+                  <button className="ghost" onClick={() => startEdit(ticket)} disabled={data.locked}>
+                    编辑
+                  </button>
                   <button className="ghost" onClick={() => updateTicket(ticket.id, { status: "void", actualPrize: 0 })} disabled={data.locked}>
                     作废
                   </button>
@@ -1268,6 +1365,61 @@ function TicketsView({ data, filter, setFilter, participantFilter, setParticipan
                     <Trash2 size={16} />
                   </button>
                 </div>
+                {editingId === ticket.id && editForm && (
+                  <div className="ticketEditForm">
+                    <div className="editPreview">
+                      {editForm.imageUrl ? <img src={editForm.imageUrl} alt="票据预览" /> : <div className="empty compact">暂无图片</div>}
+                      <label className="ghost compactBtn">
+                        更换图片
+                        <input type="file" accept="image/*" onChange={(event) => replaceEditImage(event.target.files?.[0])} hidden />
+                      </label>
+                    </div>
+                    <div className="fieldGrid">
+                      <label>参与者
+                        <select value={editForm.participantId} onChange={(event) => setEditForm({ ...editForm, participantId: event.target.value })}>
+                          {data.participants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+                        </select>
+                      </label>
+                      <label>购买时间<input type="datetime-local" value={editForm.purchaseTime} onChange={(e) => setEditForm({ ...editForm, purchaseTime: e.target.value })} /></label>
+                      <label>过关方式
+                        <select value={editForm.playType} onChange={(e) => setEditForm({ ...editForm, playType: e.target.value })}>
+                          {passTypeOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+                        </select>
+                      </label>
+                      <label>投注金额<input type="number" min="0" step="0.01" value={editForm.stakeAmount} onChange={(e) => setEditForm({ ...editForm, stakeAmount: e.target.value })} /></label>
+                      <label>倍数<input type="number" min="0" step="1" value={editForm.multiplier} onChange={(e) => setEditForm({ ...editForm, multiplier: e.target.value })} /></label>
+                      <label>注数<input type="number" min="1" step="1" value={editForm.stakeUnits} onChange={(e) => setEditForm({ ...editForm, stakeUnits: e.target.value })} /></label>
+                      <label>预计奖金<input type="number" min="0" step="0.01" value={editForm.estimatedPrize} onChange={(e) => setEditForm({ ...editForm, estimatedPrize: e.target.value })} /></label>
+                    </div>
+                    {(() => {
+                      const draftMath = ticketDraftMath(editForm);
+                      return (
+                        <div className="calcHint">
+                          <span>理论投注金额：{money(draftMath.stakeAmount)} 元 = 2元 x {draftMath.multiplier || "-"} 倍 x {draftMath.stakeUnits || "-"} 注</span>
+                          <span>赔率乘积：{draftMath.oddsProduct ? draftMath.oddsProduct.toFixed(3) : "-"}</span>
+                          <span>理论最高奖金：{money(draftMath.estimatedPrize)} 元</span>
+                          <button type="button" className="ghost compactBtn" onClick={() => setEditForm({ ...editForm, stakeAmount: draftMath.stakeAmount || editForm.stakeAmount, estimatedPrize: draftMath.estimatedPrize || editForm.estimatedPrize })}>套用计算值</button>
+                        </div>
+                      );
+                    })()}
+                    <BetItemsEditor
+                      items={editForm.betItems}
+                      matches={data.matches}
+                      onChange={(betItems) => {
+                        const matchedIds = betItems.map((item) => findMatchForBet(item, data.matches)?.id).filter(Boolean);
+                        const nextPassType = editForm.playType === "单关" || /^\d+串1$/.test(editForm.playType)
+                          ? suggestedPassType(betItems)
+                          : editForm.playType;
+                        setEditForm({ ...editForm, playType: nextPassType, betItems, matchIds: Array.from(new Set([...(editForm.matchIds || []), ...matchedIds])) });
+                      }}
+                    />
+                    <label>投注内容<textarea value={editForm.selectionText} onChange={(e) => setEditForm({ ...editForm, selectionText: e.target.value })} rows="3" /></label>
+                    <div className="rowActions">
+                      <button type="button" className="primary compactBtn" onClick={() => saveEdit(ticket)}>保存修改</button>
+                      <button type="button" className="ghost compactBtn" onClick={cancelEdit}>取消</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </article>
           ))}
