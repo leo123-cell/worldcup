@@ -27,6 +27,7 @@ export default async (req: Request) => {
     }
 
     const provider = (getEnv("AI_PROVIDER") || "qwen").toLowerCase();
+    const model = getModel(provider);
     const apiKey = getApiKey(provider);
     if (!apiKey) {
       return json({ error: `未配置 ${provider.toUpperCase()} API key，无法调用大模型识别。` }, 400);
@@ -41,14 +42,20 @@ export default async (req: Request) => {
 
     const imageUrl = `data:${file.type || "image/jpeg"};base64,${Buffer.from(await file.arrayBuffer()).toString("base64")}`;
     const output = provider === "openai"
-      ? await recognizeWithOpenAI(client, imageUrl)
-      : await recognizeWithChatCompletions(client, imageUrl, provider);
+      ? await recognizeWithOpenAI(client, imageUrl, model)
+      : await recognizeWithChatCompletions(client, imageUrl, provider, model);
     const parsed = parseModelJson(output);
     return json({ raw: output, parsed });
   } catch (error: any) {
     console.error(error);
-    const detail = error?.response?.data?.error?.message || error?.error?.message || error?.message || "大模型识别失败。";
-    return json({ error: `大模型识别失败：${detail}` }, 500);
+    const provider = (getEnv("AI_PROVIDER") || "qwen").toLowerCase();
+    const model = getModel(provider);
+    const detail = normalizeErrorMessage(error);
+    return json({
+      error: detail.startsWith("大模型识别失败") ? detail : `大模型识别失败：${detail}`,
+      provider,
+      model,
+    }, 500);
   }
 };
 
@@ -83,9 +90,9 @@ Rules:
 - Use empty string or null for unreadable fields. Do not invent.
 `;
 
-async function recognizeWithOpenAI(client: OpenAI, imageUrl: string) {
+async function recognizeWithOpenAI(client: OpenAI, imageUrl: string, model: string) {
   const response = await client.responses.create({
-    model: getModel("openai"),
+    model,
     temperature: 0,
     max_output_tokens: 1400,
     input: [
@@ -102,7 +109,7 @@ async function recognizeWithOpenAI(client: OpenAI, imageUrl: string) {
   return response.output_text || "";
 }
 
-async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, provider: string) {
+async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, provider: string, model: string) {
   const messages: any[] = [
     {
       role: "user",
@@ -115,7 +122,7 @@ async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, pr
 
   try {
     const response = await client.chat.completions.create({
-      model: getModel(provider),
+      model,
       response_format: { type: "json_object" },
       temperature: 0,
       max_tokens: 1400,
@@ -128,7 +135,7 @@ async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, pr
       throw error;
     }
     const response = await client.chat.completions.create({
-      model: getModel(provider),
+      model,
       temperature: 0,
       max_tokens: 1400,
       messages,
@@ -138,7 +145,23 @@ async function recognizeWithChatCompletions(client: OpenAI, imageUrl: string, pr
 }
 
 function getEnv(name: string) {
-  return Netlify.env.get(name) || "";
+  const netlifyValue = typeof Netlify !== "undefined" ? Netlify.env.get(name) : "";
+  return netlifyValue || process.env[name] || "";
+}
+
+function normalizeErrorMessage(error: any) {
+  const detail =
+    error?.response?.data?.error?.message ||
+    error?.response?.data?.message ||
+    error?.error?.message ||
+    error?.message ||
+    "";
+  if (detail) return String(detail);
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return "未知错误，请查看 Netlify Function 日志。";
+  }
 }
 
 function getApiKey(provider: string) {

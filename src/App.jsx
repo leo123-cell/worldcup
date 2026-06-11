@@ -524,7 +524,8 @@ async function recognizeTicket(file) {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(result.error || "大模型识别失败。");
+    const context = [result.provider, result.model].filter(Boolean).join(" / ");
+    throw new Error(`${result.error || "大模型识别失败。"}${context ? `（${context}）` : ""}`);
   }
   return result;
 }
@@ -1020,6 +1021,28 @@ function BetItemsEditor({ items, matches, onChange }) {
     onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item));
   }
 
+  function emptyItem() {
+    return {
+      matchNo: "",
+      homeTeam: "",
+      awayTeam: "",
+      market: "胜平负",
+      selection: "",
+      odds: "",
+      handicap: "",
+      matchId: "",
+      matchUid: "",
+    };
+  }
+
+  function addItem() {
+    onChange([...items, emptyItem()]);
+  }
+
+  function removeItem(index) {
+    onChange(items.filter((_, itemIndex) => itemIndex !== index));
+  }
+
   function selectionField(item, index, market) {
     if (market === "比分") {
       return <label>比分选择<input value={normalizeSelection(item.selection)} onChange={(e) => updateItem(index, { selection: e.target.value })} placeholder="如 2:1" /></label>;
@@ -1042,16 +1065,16 @@ function BetItemsEditor({ items, matches, onChange }) {
     );
   }
 
-  if (!items.length) {
-    return <div className="empty compact">AI 识别后会在这里生成字段化投注项</div>;
-  }
-
   return (
     <div className="betEditor">
       <div className="betEditorHeader">
-        <strong>字段化投注项</strong>
-        <span>赛前只需核对这些字段</span>
+        <div>
+          <strong>字段化投注项</strong>
+          <span>AI 识别失败也可以手动补全</span>
+        </div>
+        <button className="ghost compactBtn" type="button" onClick={addItem}><Plus size={15} /> 新增投注项</button>
       </div>
+      {!items.length && <div className="empty compact">暂无投注项，请点击“新增投注项”手动填写。</div>}
       {items.map((item, index) => {
         const matched = findMatchForBet(item, matches);
         const market = normalizeMarket(item.market || item.playType, item.selection);
@@ -1102,6 +1125,7 @@ function BetItemsEditor({ items, matches, onChange }) {
             <div className={matched ? "matchLink ok" : "matchLink warn"}>
               {matched ? `已匹配：${matched.matchUid || matched.matchNo}` : "未匹配赛程"}
             </div>
+            <button className="ghost compactBtn wideField" type="button" onClick={() => removeItem(index)}>删除投注项</button>
           </div>
         );
       })}
