@@ -344,6 +344,7 @@ function percent(value) {
 
 function getMatchStatus(match) {
   if (matchOutcome(match)) return "settled";
+  if (match.scoreClearedAt) return "scheduled";
   const kickoff = new Date(match.kickoffTime).getTime();
   return Date.now() >= kickoff ? "finished" : "scheduled";
 }
@@ -1491,14 +1492,26 @@ function MatchesView({ data, commit }) {
 
   function confirmScore(match) {
     const draft = scoreDrafts[match.id] || {};
-    if (draft.homeScore === "" || draft.awayScore === "") {
+    const homeScore = String(draft.homeScore ?? "").trim();
+    const awayScore = String(draft.awayScore ?? "").trim();
+    if (!homeScore && !awayScore) {
+      updateMatch(match.id, {
+        homeScore: "",
+        awayScore: "",
+        scoreConfirmedAt: null,
+        scoreClearedAt: new Date().toISOString(),
+      });
+      return;
+    }
+    if (!homeScore || !awayScore) {
       alert("请先填写主队和客队比分。");
       return;
     }
     updateMatch(match.id, {
-      homeScore: draft.homeScore,
-      awayScore: draft.awayScore,
+      homeScore,
+      awayScore,
       scoreConfirmedAt: new Date().toISOString(),
+      scoreClearedAt: null,
     });
   }
 
