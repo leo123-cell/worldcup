@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 const STORAGE_KEY = "worldcup-betting-tracker-v1";
+const SCORE_DRAFT_KEY = "worldcup-score-drafts-v1";
 const BASE_AMOUNT = 100;
 const CLOSE_MINUTES = 5;
 
@@ -251,8 +252,7 @@ function loadData() {
 function migrateData(data) {
   const schedule = worldCup2026GroupMatches();
   const existing = (data.matches || []).filter((match) =>
-    !String(match.matchNo || "").startsWith("示例") &&
-    !String(match.id || "").startsWith("wc26_")
+    !String(match.matchNo || "").startsWith("示例")
   );
   const merged = [...existing];
   schedule.forEach((match) => {
@@ -278,6 +278,18 @@ function migrateData(data) {
 
 function saveData(data) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+function loadScoreDrafts() {
+  try {
+    return JSON.parse(localStorage.getItem(SCORE_DRAFT_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function saveScoreDrafts(drafts) {
+  localStorage.setItem(SCORE_DRAFT_KEY, JSON.stringify(drafts));
 }
 
 async function loadSharedData() {
@@ -1382,10 +1394,15 @@ function MatchesView({ data, commit }) {
     stageFilter === "group" ? match.stage === "group" : match.stage !== "group"
   );
   const [scoreDrafts, setScoreDrafts] = useState(() =>
-    Object.fromEntries(data.matches.map((match) => [match.id, {
-      homeScore: match.homeScore ?? "",
-      awayScore: match.awayScore ?? "",
-    }]))
+    Object.fromEntries(data.matches.map((match) => {
+      const savedDraft = loadScoreDrafts()[match.id] || {};
+      const hasConfirmedScore = match.homeScore !== "" && match.homeScore !== undefined && match.homeScore !== null &&
+        match.awayScore !== "" && match.awayScore !== undefined && match.awayScore !== null;
+      return [match.id, {
+        homeScore: hasConfirmedScore ? match.homeScore : savedDraft.homeScore ?? match.homeScore ?? "",
+        awayScore: hasConfirmedScore ? match.awayScore : savedDraft.awayScore ?? match.awayScore ?? "",
+      }];
+    }))
   );
   const [form, setForm] = useState({
     matchNo: "",
@@ -1465,7 +1482,11 @@ function MatchesView({ data, commit }) {
   }
 
   function updateScoreDraft(id, patch) {
-    setScoreDrafts((next) => ({ ...next, [id]: { ...(next[id] || {}), ...patch } }));
+    setScoreDrafts((next) => {
+      const updated = { ...next, [id]: { ...(next[id] || {}), ...patch } };
+      saveScoreDrafts(updated);
+      return updated;
+    });
   }
 
   function confirmScore(match) {
