@@ -1006,6 +1006,46 @@ export default function App() {
     };
   }, []);
 
+  function refreshSharedData() {
+    setSyncStatus("正在同步共享数据...");
+    return loadSharedData()
+      .then((shared) => {
+        if (shared) {
+          setData(shared);
+          saveData(shared);
+          setSyncStatus(`共享数据已同步：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
+        } else {
+          setSyncStatus("暂无共享数据，本次修改后会自动创建。");
+        }
+      })
+      .catch((error) => setSyncStatus(`共享同步失败：${error.message}`));
+  }
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      loadSharedData()
+        .then((shared) => {
+          if (!shared) return;
+          setData((current) => {
+            const sharedUpdated = JSON.stringify({
+              tickets: (shared.tickets || []).map((ticket) => [ticket.id, ticket.updatedAt]),
+              matches: (shared.matches || []).map((match) => [match.id, match.updatedAt, match.homeScore, match.awayScore]),
+            });
+            const currentUpdated = JSON.stringify({
+              tickets: (current.tickets || []).map((ticket) => [ticket.id, ticket.updatedAt]),
+              matches: (current.matches || []).map((match) => [match.id, match.updatedAt, match.homeScore, match.awayScore]),
+            });
+            if (sharedUpdated === currentUpdated) return current;
+            saveData(shared);
+            setSyncStatus(`共享数据已自动同步：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`);
+            return shared;
+          });
+        })
+        .catch(() => {});
+    }, 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   function commit(next) {
     const migrated = migrateData(next);
     setData(migrated);
@@ -1089,6 +1129,9 @@ export default function App() {
           <div className="topActions">
             <button className="ghost" onClick={refreshMatchStatuses}>
               <Clock3 size={17} /> 刷新自动结算
+            </button>
+            <button className="ghost" onClick={refreshSharedData}>
+              <Search size={17} /> 同步共享数据
             </button>
             <button className="primary" onClick={lockBoard} disabled={data.locked}>
               <Award size={17} /> {data.locked ? "已锁榜" : "锁定最终榜"}
@@ -1557,17 +1600,29 @@ function UploadView({ data, commit, locked }) {
     setUploadStatus("图片已上传，请手动填写票据信息和投注项。");
   }
 
-  function submit(event) {
+  async function submit(event) {
     event.preventDefault();
     if (locked) {
       alert("榜单已锁定，不能新增票据。");
       return;
     }
-    const participant = data.participants.find((person) => person.id === form.participantId);
+    setUploadStatus("正在同步线上最新数据...");
+    let baseData = data;
+    try {
+      const shared = await loadSharedData();
+      if (shared) baseData = shared;
+    } catch {
+      setUploadStatus("共享数据暂时无法读取，将基于当前页面数据保存。");
+    }
+    if (baseData.locked) {
+      alert("榜单已锁定，不能新增票据。");
+      return;
+    }
+    const participant = baseData.participants.find((person) => person.id === form.participantId);
     const addedMatches = [];
     const matchedIds = new Set(form.matchIds);
     form.betItems.forEach((item) => {
-      const matched = findMatchForBet(item, [...data.matches, ...addedMatches]);
+      const matched = findMatchForBet(item, [...baseData.matches, ...addedMatches]);
       if (matched) {
         matchedIds.add(matched.id);
         return;
@@ -1589,7 +1644,7 @@ function UploadView({ data, commit, locked }) {
         matchedIds.add(match.id);
       }
     });
-    const allMatches = [...data.matches, ...addedMatches];
+    const allMatches = [...baseData.matches, ...addedMatches];
     const selectedMatches = Array.from(matchedIds).map((id) => allMatches.find((match) => match.id === id)).filter(Boolean);
     const gate = canSubmitTicket(selectedMatches, form.purchaseTime);
     if (!gate.ok) {
@@ -1632,7 +1687,7 @@ function UploadView({ data, commit, locked }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    commit({ ...data, matches: allMatches, tickets: [ticket, ...data.tickets] });
+    commit({ ...baseData, matches: allMatches, tickets: [ticket, ...(baseData.tickets || [])] });
     setForm((next) => ({
       ...next,
       ticketNo: "",
