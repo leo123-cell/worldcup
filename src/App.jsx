@@ -149,8 +149,9 @@ function marketFromRatings(homeRating, awayRating) {
   const draw = clamp(0.29 - Math.abs(diff) * 0.0075, 0.16, 0.31);
   const nonDraw = 1 - draw;
   const homeShare = 1 / (1 + Math.exp(-diff / 10));
-  const home = clamp(nonDraw * homeShare, 0.08, 0.82);
-  const away = clamp(nonDraw - home, 0.06, 0.78);
+  const minDog = Math.abs(diff) >= 28 ? 0.025 : Math.abs(diff) >= 20 ? 0.04 : 0.06;
+  const home = clamp(nonDraw * homeShare, minDog, 0.88);
+  const away = clamp(nonDraw - home, minDog, 0.84);
   const total = home + draw + away;
   return [home / total, draw / total, away / total];
 }
@@ -764,8 +765,28 @@ function buildForecast(match, inputs) {
   const seedHomeLambda = clamp(totalGoals / 2 + netEdge * 0.58 + numeric(inputs.homeAttack, 5) * 0.035 - numeric(inputs.awayDefense, 5) * 0.025, 0.25, 3.6);
   const seedAwayLambda = clamp(totalGoals - seedHomeLambda, 0.2, 3.4);
   const calibrated = calibrateLambdas(implied, totalGoals, seedHomeLambda, seedAwayLambda, netEdge);
-  const homeLambda = clamp(calibrated.homeLambda, 0.25, 3.6);
-  const awayLambda = clamp(calibrated.awayLambda, 0.2, 3.4);
+  let homeLambda = clamp(calibrated.homeLambda, 0.25, 3.6);
+  let awayLambda = clamp(calibrated.awayLambda, 0.2, 3.4);
+  const favoriteProb = Math.max(implied[0], implied[2]);
+  const handicapAbs = Math.abs(numeric(inputs.asianLine, 0));
+  const mismatchPressure = clamp(
+    (favoriteProb - 0.7) * 2.2 +
+    (handicapAbs - 1.25) * 0.28 +
+    Math.abs(valueEdge) * 0.1 +
+    Math.max(0, Math.abs(attackDefenseEdge) - 0.55) * 0.35,
+    0,
+    0.78
+  );
+  if (mismatchPressure > 0 && favoriteProb >= 0.7 && handicapAbs >= 1.25) {
+    if (implied[0] >= implied[2]) {
+      homeLambda = clamp(homeLambda + mismatchPressure * 0.78, 0.25, 3.9);
+      awayLambda = clamp(awayLambda - mismatchPressure * 0.86, 0.12, 2.8);
+    } else {
+      awayLambda = clamp(awayLambda + mismatchPressure * 0.78, 0.2, 3.7);
+      homeLambda = clamp(homeLambda - mismatchPressure * 0.86, 0.12, 2.8);
+    }
+  }
+  const adjustedTotalGoals = homeLambda + awayLambda;
   const scores = scoreProbabilityGrid(homeLambda, awayLambda);
   const outcomes = outcomeStatsFromScores(scores);
   const factors = [
@@ -791,7 +812,7 @@ function buildForecast(match, inputs) {
     },
     implied,
     netEdge,
-    totalGoals,
+    totalGoals: adjustedTotalGoals,
     factors,
     confidence: clamp(0.58 + Math.abs(netEdge) * 0.14 + Math.abs(implied[0] - implied[2]) * 0.18 - implied[1] * 0.08, 0.48, 0.86),
   };
