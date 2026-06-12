@@ -156,10 +156,14 @@ function marketFromRatings(homeRating, awayRating) {
 }
 
 function lineFromDiff(diff) {
+  if (diff >= 28) return "-2";
+  if (diff >= 22) return "-1.75";
   if (diff >= 18) return "-1.5";
   if (diff >= 13) return "-1";
   if (diff >= 8) return "-0.75";
   if (diff >= 4) return "-0.25";
+  if (diff <= -28) return "2";
+  if (diff <= -22) return "1.75";
   if (diff <= -18) return "1.5";
   if (diff <= -13) return "1";
   if (diff <= -8) return "0.75";
@@ -175,7 +179,9 @@ function forecastInputsForMatch(match) {
   const [homeProb, drawProb, awayProb] = marketFromRatings(home.rating, away.rating);
   const attackTempo = (home.attack + away.attack) / 2;
   const defenseDrag = (home.defense + away.defense) / 2;
-  const totalLine = clamp(2.5 + (attackTempo - 6.5) * 0.18 - (defenseDrag - 6.5) * 0.1, 2, 3.25);
+  const mismatchBoost = Math.abs(diff) >= 28 ? 0.55 : Math.abs(diff) >= 20 ? 0.35 : Math.abs(diff) >= 14 ? 0.18 : 0;
+  const favoriteAttackBoost = diff > 14 ? Math.max(0, home.attack - away.defense) * 0.08 : diff < -14 ? Math.max(0, away.attack - home.defense) * 0.08 : 0;
+  const totalLine = clamp(2.5 + (attackTempo - 6.5) * 0.18 - (defenseDrag - 6.5) * 0.1 + mismatchBoost + favoriteAttackBoost, 2, 3.6);
   return {
     ...defaultForecastInputs,
     homeValue: String(home.value),
@@ -190,9 +196,9 @@ function forecastInputsForMatch(match) {
     asianLine: lineFromDiff(diff),
     overUnderLine: totalLine.toFixed(2),
     baseGoals: totalLine.toFixed(2),
-    overOdds: attackTempo >= defenseDrag ? "1.86" : "1.96",
-    underOdds: attackTempo >= defenseDrag ? "1.98" : "1.88",
-    styleEdge: String(clamp(Math.round(diff / 12), -3, 3)),
+    overOdds: mismatchBoost > 0 ? "1.82" : attackTempo >= defenseDrag ? "1.86" : "1.96",
+    underOdds: mismatchBoost > 0 ? "2.04" : attackTempo >= defenseDrag ? "1.98" : "1.88",
+    styleEdge: String(clamp(Math.round(diff / 10), -4, 4)),
     formEdge: "0",
     marketNote: `${match.homeTeam} vs ${match.awayTeam} 的盘口为模型按球队实力预填，赛前应按真实体彩/市场赔率校正。`,
     homeNews: `${match.homeTeam} 新闻：补充首发、伤停、轮换、定位球和赛前发布会信息。`,
@@ -791,6 +797,28 @@ function buildForecast(match, inputs) {
   };
 }
 
+function forecastBacktestRows(matches) {
+  return [...matches]
+    .filter((match) => scorePair(match))
+    .sort((a, b) => new Date(b.kickoffTime).getTime() - new Date(a.kickoffTime).getTime())
+    .map((match) => {
+      const inputs = forecastInputsForMatch(match);
+      const forecast = buildForecast(match, inputs);
+      const scores = scorePair(match);
+      const predicted = forecast.mainScore;
+      const actualOutcome = outcomeFromScores(scores.home, scores.away);
+      const predictedOutcome = outcomeFromScores(predicted.home, predicted.away);
+      return {
+        match,
+        forecast,
+        actualScore: `${scores.home}-${scores.away}`,
+        exactHit: predicted.home === scores.home && predicted.away === scores.away,
+        outcomeHit: actualOutcome === predictedOutcome,
+        goalError: Math.abs(predicted.home - scores.home) + Math.abs(predicted.away - scores.away),
+      };
+    });
+}
+
 function settleTicketByScores(ticket, matches) {
   const items = ticket.betItems || [];
   if (!items.length) return null;
@@ -1193,6 +1221,14 @@ function ForecastView({ data }) {
   const [inputs, setInputs] = useState(() => forecastInputsForMatch(initialMatch));
   const selectedMatch = data.matches.find((match) => match.id === matchId) || matches[0] || data.matches[0];
   const forecast = selectedMatch ? buildForecast(selectedMatch, inputs) : null;
+  const backtestRows = forecastBacktestRows(data.matches);
+  const backtestStats = backtestRows.length
+    ? {
+        exact: backtestRows.filter((row) => row.exactHit).length,
+        outcome: backtestRows.filter((row) => row.outcomeHit).length,
+        avgError: backtestRows.reduce((sum, row) => sum + row.goalError, 0) / backtestRows.length,
+      }
+    : null;
 
   function setInput(field, value) {
     setInputs((next) => ({ ...next, [field]: value }));
@@ -1391,6 +1427,49 @@ function ForecastView({ data }) {
           <label>过往战绩<textarea rows="3" value={inputs.h2hText} onChange={(e) => setInput("h2hText", e.target.value)} /></label>
           <label>首发与伤停<textarea rows="3" value={inputs.lineupText} onChange={(e) => setInput("lineupText", e.target.value)} /></label>
         </div>
+      </div>
+
+      <div className="forecastBacktest forecastCard">
+        <div className="panelHeader">
+          <div>
+            <h2>历史回测</h2>
+            <p>展示已录入比分比赛的模型复盘，用于观察预测倾向和误差。</p>
+          </div>
+          {backtestStats && (
+            <div className="backtestStats">
+              <span>赛果命中 {percent(backtestStats.outcome / backtestRows.length)}</span>
+              <span>比分命中 {percent(backtestStats.exact / backtestRows.length)}</span>
+              <span>平均偏差 {backtestStats.avgError.toFixed(2)} 球</span>
+            </div>
+          )}
+        </div>
+        {backtestRows.length ? (
+          <div className="backtestList">
+            {backtestRows.slice(0, 12).map((row) => (
+              <div className="backtestItem" key={row.match.id}>
+                <div>
+                  <span>{row.match.matchNo} · {row.match.kickoffTime}</span>
+                  <strong>{row.match.homeTeam} vs {row.match.awayTeam}</strong>
+                </div>
+                <div>
+                  <span>预测</span>
+                  <strong>{row.forecast.mainScore.score}</strong>
+                  <small>{row.forecast.topScores.slice(0, 3).map((score) => score.score).join(" / ")}</small>
+                </div>
+                <div>
+                  <span>赛果</span>
+                  <strong>{row.actualScore}</strong>
+                  <small>{row.outcomeHit ? "方向命中" : "方向未中"} · 偏差 {row.goalError}</small>
+                </div>
+                <em className={row.exactHit ? "hit" : row.outcomeHit ? "partial" : "miss"}>
+                  {row.exactHit ? "比分命中" : row.outcomeHit ? "赛果命中" : "未命中"}
+                </em>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="empty compactEmpty">暂无已录入比分的比赛。等赛程里填完比分后，这里会自动出现回测。</div>
+        )}
       </div>
     </section>
   );
