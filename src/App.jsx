@@ -72,6 +72,16 @@ const defaultForecastInputs = {
   weatherEdge: "0",
   motivationEdge: "0",
   baseGoals: "2.55",
+  asianLine: "0",
+  overUnderLine: "2.5",
+  overOdds: "1.90",
+  underOdds: "1.90",
+  returnRate: "94",
+  marketNote: "盘口和赔率为手动录入；临场大幅变盘需要重新计算。",
+  homeNews: "主队新闻：核心阵容、伤停、轮换和赛前发布会信息待补充。",
+  awayNews: "客队新闻：防线伤停、旅行距离、适应场地和心理状态待补充。",
+  h2hText: "过往战绩：录入近 3-5 次交手、同洲/同风格球队表现和友谊赛参考。",
+  lineupText: "首发判断：录入门将、中卫、后腰、前锋等关键位置可用性。",
 };
 
 const defaultParticipants = [
@@ -571,6 +581,7 @@ function buildForecast(match, inputs) {
   const valueEdge = clamp(Math.log((homeValue + 25) / (awayValue + 25)) * 1.15, -1.2, 1.2);
   const implied = oddsToImplied([inputs.homeOdds, inputs.drawOdds, inputs.awayOdds]);
   const marketEdge = clamp((implied[0] - implied[2]) * 2.2, -1.1, 1.1);
+  const asianEdge = clamp(-numeric(inputs.asianLine, 0) * 0.36, -0.8, 0.8);
   const attackDefenseEdge = clamp(((numeric(inputs.homeAttack, 5) - numeric(inputs.awayDefense, 5)) - (numeric(inputs.awayAttack, 5) - numeric(inputs.homeDefense, 5))) / 8, -1, 1);
   const situationalEdge =
     numeric(inputs.styleEdge, 0) * 0.14 +
@@ -580,10 +591,11 @@ function buildForecast(match, inputs) {
     numeric(inputs.restTravelEdge, 0) * 0.09 +
     numeric(inputs.weatherEdge, 0) * 0.06 +
     numeric(inputs.motivationEdge, 0) * 0.08;
-  const netEdge = clamp(valueEdge * 0.22 + marketEdge * 0.32 + attackDefenseEdge * 0.24 + situationalEdge * 0.22, -1.35, 1.35);
+  const netEdge = clamp(valueEdge * 0.2 + marketEdge * 0.28 + asianEdge * 0.12 + attackDefenseEdge * 0.22 + situationalEdge * 0.18, -1.35, 1.35);
   const baseGoals = clamp(numeric(inputs.baseGoals, 2.55), 1.5, 4.2);
+  const overUnderLine = numeric(inputs.overUnderLine, baseGoals);
   const drawPull = implied[1] ? (implied[1] - 0.26) * 0.7 : 0;
-  const totalGoals = clamp(baseGoals + (numeric(inputs.homeAttack, 5) + numeric(inputs.awayAttack, 5) - 10) * 0.08 - Math.max(drawPull, 0) * 0.35, 1.4, 4.6);
+  const totalGoals = clamp(baseGoals * 0.55 + overUnderLine * 0.45 + (numeric(inputs.homeAttack, 5) + numeric(inputs.awayAttack, 5) - 10) * 0.08 - Math.max(drawPull, 0) * 0.35, 1.4, 4.6);
   const homeLambda = clamp(totalGoals / 2 + netEdge * 0.58 + numeric(inputs.homeAttack, 5) * 0.035 - numeric(inputs.awayDefense, 5) * 0.025, 0.25, 3.6);
   const awayLambda = clamp(totalGoals - homeLambda, 0.2, 3.4);
   const scores = scoreProbabilityGrid(homeLambda, awayLambda);
@@ -593,6 +605,7 @@ function buildForecast(match, inputs) {
   const totalMass = homeWin + draw + awayWin;
   const factors = [
     ["市场赔率", marketEdge, "赔率会聚合公开信息，是当前权重最高的输入。"],
+    ["盘口让球", asianEdge, "亚洲让球盘反映强弱和赔付压力，临场变化需要重点关注。"],
     ["阵容身价", valueEdge, "身价代表阵容上限，但对单场预测只做中等权重。"],
     ["攻防匹配", attackDefenseEdge, "比较主队进攻对客队防守、客队进攻对主队防守。"],
     ["打法克制", numeric(inputs.styleEdge, 0) / 5, "正数表示主队打法更克制对手，负数相反。"],
@@ -859,7 +872,7 @@ export default function App() {
           <div className="syncStatus">{syncStatus}</div>
         </header>
 
-        <EventBanner rows={rows} stats={stats} />
+        {activeTab !== "forecast" && <EventBanner rows={rows} stats={stats} />}
 
         {activeTab === "rank" && <RankView rows={rows} stats={stats} setSelectedUser={setSelectedUser} selectedUser={selectedUser} />}
         {activeTab === "upload" && <UploadView data={data} commit={commit} locked={data.locked} />}
@@ -1033,6 +1046,11 @@ function ForecastView({ data }) {
       homeOdds: "1.67",
       drawOdds: "4.10",
       awayOdds: "8.30",
+      asianLine: "-1",
+      overUnderLine: "2.5",
+      overOdds: "1.86",
+      underOdds: "1.98",
+      returnRate: "95",
       homeAttack: "7",
       homeDefense: "6",
       awayAttack: "4",
@@ -1045,6 +1063,11 @@ function ForecastView({ data }) {
       weatherEdge: "0",
       motivationEdge: "1",
       baseGoals: "2.65",
+      marketNote: "主队让一球低水，市场认为主队有明显优势，但大胜仍取决于早球效率。",
+      homeNews: "主队新闻：阵容身价优势明显，边路推进和定位球质量占优。",
+      awayNews: "客队新闻：客队更依赖防守反击，若早段失球会被迫提高阵型。",
+      h2hText: "过往战绩：双方正式交手样本较少，更多参考相近风格球队表现。",
+      lineupText: "首发判断：若主队主力中锋和双边锋首发，2球以上胜面会提高。",
     }));
   }
 
@@ -1053,26 +1076,26 @@ function ForecastView({ data }) {
   }
 
   return (
-    <section className="forecastLayout">
-      <div className="forecastHero panel">
+    <section className="forecastLayout forecastScreen">
+      <div className="forecastHero">
         <div>
           <span className="eventEyebrow"><Sparkles size={15} /> WORLD CUP FORECAST ENGINE</span>
           <h2>世界杯比分预测</h2>
-          <p>把赔率、阵容身价、攻防强弱、打法克制、近况、伤停、旅途天气等因素换算成净优势，再用 Poisson 进球分布推演比分。</p>
+          <p>把盘口、赔率、身价、攻防强弱、打法克制、近况、伤停、新闻和过往战绩换算成因子积分，再用 Poisson 进球分布推演比分。</p>
         </div>
         <div className="forecastSummary">
-          <span>模型版本</span>
+          <span>模型状态</span>
           <strong>factor-poisson-v1</strong>
-          <small>手动因子输入，透明可调</small>
+          <small>盘口、赔率与新闻手动录入</small>
         </div>
       </div>
 
       <div className="forecastGrid">
-        <div className="panel forecastControls">
+        <div className="forecastControls forecastCard">
           <div className="panelHeader">
             <div>
-              <h2>输入因子</h2>
-              <p>正数偏主队，负数偏客队；赔率和身价建议按赛前最新数据填写。</p>
+              <h2>数据输入</h2>
+              <p>赔率、盘口和新闻建议按赛前最新信息填写。</p>
             </div>
             <button type="button" className="ghost compactBtn" onClick={loadMarketPreset}>载入示例</button>
           </div>
@@ -1085,13 +1108,22 @@ function ForecastView({ data }) {
               ))}
             </select>
           </label>
+          <div className="forecastSectionTitle">盘口与赔率</div>
           <div className="factorGrid">
             <label>主队身价/实力<input type="number" step="0.01" value={inputs.homeValue} onChange={(e) => setInput("homeValue", e.target.value)} /></label>
             <label>客队身价/实力<input type="number" step="0.01" value={inputs.awayValue} onChange={(e) => setInput("awayValue", e.target.value)} /></label>
             <label>主胜赔率<input type="number" step="0.01" value={inputs.homeOdds} onChange={(e) => setInput("homeOdds", e.target.value)} /></label>
             <label>平局赔率<input type="number" step="0.01" value={inputs.drawOdds} onChange={(e) => setInput("drawOdds", e.target.value)} /></label>
             <label>客胜赔率<input type="number" step="0.01" value={inputs.awayOdds} onChange={(e) => setInput("awayOdds", e.target.value)} /></label>
+            <label>亚洲让球<input type="number" step="0.25" value={inputs.asianLine} onChange={(e) => setInput("asianLine", e.target.value)} /></label>
+            <label>大小球盘口<input type="number" step="0.25" value={inputs.overUnderLine} onChange={(e) => setInput("overUnderLine", e.target.value)} /></label>
+            <label>大球赔率<input type="number" step="0.01" value={inputs.overOdds} onChange={(e) => setInput("overOdds", e.target.value)} /></label>
+            <label>小球赔率<input type="number" step="0.01" value={inputs.underOdds} onChange={(e) => setInput("underOdds", e.target.value)} /></label>
+            <label>返还率 %<input type="number" step="0.1" value={inputs.returnRate} onChange={(e) => setInput("returnRate", e.target.value)} /></label>
             <label>预期总进球<input type="number" step="0.05" value={inputs.baseGoals} onChange={(e) => setInput("baseGoals", e.target.value)} /></label>
+          </div>
+          <div className="forecastSectionTitle">攻防评分</div>
+          <div className="factorGrid">
             <label>主队进攻<input type="number" min="1" max="10" value={inputs.homeAttack} onChange={(e) => setInput("homeAttack", e.target.value)} /></label>
             <label>主队防守<input type="number" min="1" max="10" value={inputs.homeDefense} onChange={(e) => setInput("homeDefense", e.target.value)} /></label>
             <label>客队进攻<input type="number" min="1" max="10" value={inputs.awayAttack} onChange={(e) => setInput("awayAttack", e.target.value)} /></label>
@@ -1114,12 +1146,12 @@ function ForecastView({ data }) {
           </div>
         </div>
 
-        <div className="panel forecastResult">
+        <div className="forecastResult forecastCard">
           <div className="matchForecastHeader">
             <div>
               <span>{selectedMatch.matchNo}</span>
               <strong>{selectedMatch.homeTeam}</strong>
-              <small>HOME</small>
+              <small>HOME · {numeric(inputs.homeValue).toFixed(2)}</small>
             </div>
             <div className="mainScoreBox">
               <span>主推比分</span>
@@ -1129,7 +1161,7 @@ function ForecastView({ data }) {
             <div>
               <span>{selectedMatch.kickoffTime}</span>
               <strong>{selectedMatch.awayTeam}</strong>
-              <small>AWAY</small>
+              <small>AWAY · {numeric(inputs.awayValue).toFixed(2)}</small>
             </div>
           </div>
 
@@ -1137,7 +1169,13 @@ function ForecastView({ data }) {
             <ForecastProb label="主胜" value={forecast.probabilities.home} />
             <ForecastProb label="平局" value={forecast.probabilities.draw} />
             <ForecastProb label="客胜" value={forecast.probabilities.away} />
-            <ForecastProb label="总进球" value={forecast.totalGoals / 5} text={forecast.totalGoals.toFixed(2)} />
+            <ForecastProb label="预期进球" value={forecast.totalGoals / 5} text={`${forecast.homeLambda.toFixed(2)}:${forecast.awayLambda.toFixed(2)}`} />
+          </div>
+
+          <div className="scoreTriplet">
+            <div><span>主推</span><strong>{forecast.mainScore.score}</strong><small>概率 {percent(forecast.mainScore.probability)}</small></div>
+            <div><span>稳健</span><strong>{forecast.topScores[1]?.score || forecast.mainScore.score}</strong><small>次高概率</small></div>
+            <div><span>进取</span><strong>{forecast.topScores.find((row) => Math.abs(row.home - row.away) >= 2)?.score || forecast.topScores[2]?.score}</strong><small>拉开比分</small></div>
           </div>
 
           <div className="forecastPanels">
@@ -1169,9 +1207,23 @@ function ForecastView({ data }) {
 
           <div className="riskBox">
             <b>模型判断</b>
-            <span>赔率隐含概率：主胜 {percent(forecast.implied[0])}，平 {percent(forecast.implied[1])}，客胜 {percent(forecast.implied[2])}。预期进球为 {forecast.homeLambda.toFixed(2)} : {forecast.awayLambda.toFixed(2)}。</span>
+            <span>赔率隐含概率：主胜 {percent(forecast.implied[0])}，平 {percent(forecast.implied[1])}，客胜 {percent(forecast.implied[2])}。盘口：{inputs.asianLine}，大小球：{inputs.overUnderLine}。</span>
             <span>风险点：小组赛轮换、临场伤停、红牌、天气和早球会显著改变比分分布。这个工具适合辅助判断，不保证命中。</span>
           </div>
+        </div>
+
+        <div className="forecastIntel forecastCard">
+          <h2>专业解读</h2>
+          <div className="intelCard">
+            <span>模型口径</span>
+            <strong>盘口 + 赔率 + 因子 Poisson</strong>
+            <p>市场 {forecast.factors[0][1] >= 0 ? "偏主队" : "偏客队"}，盘口因子 {forecast.factors[1][1] >= 0 ? "支持主队" : "支持客队"}，当前净优势 {forecast.netEdge.toFixed(3)}。</p>
+          </div>
+          <label>盘口解读<textarea rows="3" value={inputs.marketNote} onChange={(e) => setInput("marketNote", e.target.value)} /></label>
+          <label>主队新闻<textarea rows="3" value={inputs.homeNews} onChange={(e) => setInput("homeNews", e.target.value)} /></label>
+          <label>客队新闻<textarea rows="3" value={inputs.awayNews} onChange={(e) => setInput("awayNews", e.target.value)} /></label>
+          <label>过往战绩<textarea rows="3" value={inputs.h2hText} onChange={(e) => setInput("h2hText", e.target.value)} /></label>
+          <label>首发与伤停<textarea rows="3" value={inputs.lineupText} onChange={(e) => setInput("lineupText", e.target.value)} /></label>
         </div>
       </div>
     </section>

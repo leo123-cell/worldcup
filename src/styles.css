@@ -416,14 +416,36 @@ h2 {
 
 .forecastLayout { display: grid; gap: 18px; }
 
+.forecastScreen {
+  margin: -8px;
+  padding: 14px;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 24% 10%, rgba(56, 189, 248, 0.18), transparent 34%),
+    linear-gradient(180deg, #e0f2fe, #d9f2fb 42%, #edf7ff 100%);
+}
+
+.forecastCard {
+  border: 1px solid rgba(186, 230, 253, 0.92);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 20px 44px rgba(14, 116, 144, 0.14);
+  backdrop-filter: blur(12px);
+  padding: 16px;
+}
+
 .forecastHero {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
   gap: 18px;
   align-items: center;
+  padding: 18px;
+  border: 1px solid rgba(186, 230, 253, 0.92);
+  border-radius: 10px;
   background:
-    linear-gradient(135deg, rgba(239, 246, 255, 0.96), rgba(255, 255, 255, 0.94)),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.78), rgba(224, 242, 254, 0.78)),
     radial-gradient(circle at 85% 16%, rgba(14, 165, 233, 0.16), transparent 28%);
+  box-shadow: 0 20px 44px rgba(14, 116, 144, 0.12);
 }
 
 .forecastHero h2 {
@@ -441,9 +463,9 @@ h2 {
 .forecastSummary,
 .forecastProb,
 .forecastPanels > div {
-  border: 1px solid var(--line);
+  border: 1px solid rgba(186, 230, 253, 0.9);
   border-radius: 8px;
-  background: white;
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .forecastSummary {
@@ -464,8 +486,8 @@ h2 {
 
 .forecastGrid {
   display: grid;
-  grid-template-columns: 390px minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: 330px minmax(560px, 1fr) 330px;
+  gap: 14px;
   align-items: start;
 }
 
@@ -485,9 +507,15 @@ h2 {
   display: grid;
   gap: 10px;
   padding: 12px;
-  border: 1px solid var(--line);
+  border: 1px solid rgba(186, 230, 253, 0.9);
   border-radius: 8px;
-  background: #f8fafc;
+  background: rgba(240, 249, 255, 0.74);
+}
+
+.forecastSectionTitle {
+  color: #075985;
+  font-size: 13px;
+  font-weight: 900;
 }
 
 .sliderGrid label {
@@ -512,14 +540,14 @@ h2 {
 }
 
 .matchForecastHeader > div {
-  min-height: 130px;
+  min-height: 150px;
   display: grid;
   place-items: center;
   gap: 6px;
   padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  border: 1px solid rgba(186, 230, 253, 0.9);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(240,249,255,0.84));
   text-align: center;
 }
 
@@ -532,7 +560,7 @@ h2 {
 
 .mainScoreBox strong {
   color: var(--navy);
-  font-size: 56px;
+  font-size: 64px;
 }
 
 .probGrid {
@@ -545,7 +573,7 @@ h2 {
   display: grid;
   gap: 6px;
   padding: 14px;
-  background: #f8fafc;
+  background: rgba(240, 249, 255, 0.74);
 }
 
 .forecastProb span {
@@ -613,10 +641,71 @@ h2 {
   display: grid;
   gap: 8px;
   padding: 14px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid rgba(125, 211, 252, 0.9);
   border-radius: 8px;
-  background: #eff6ff;
+  background: rgba(224, 242, 254, 0.78);
   color: #1e3a8a;
+  line-height: 1.7;
+}
+
+.scoreTriplet {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.scoreTriplet div {
+  display: grid;
+  gap: 6px;
+  min-height: 88px;
+  padding: 12px;
+  border: 1px solid rgba(186, 230, 253, 0.9);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.78);
+}
+
+.scoreTriplet span,
+.scoreTriplet small {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.scoreTriplet strong {
+  font-size: 28px;
+}
+
+.forecastIntel {
+  display: grid;
+  gap: 12px;
+}
+
+.forecastIntel h2 {
+  font-size: 18px;
+}
+
+.forecastIntel textarea {
+  min-height: 74px;
+  resize: vertical;
+}
+
+.intelCard {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid rgba(186, 230, 253, 0.9);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.78);
+}
+
+.intelCard span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.intelCard p {
+  margin: 0;
+  color: var(--muted);
   line-height: 1.7;
 }
 
