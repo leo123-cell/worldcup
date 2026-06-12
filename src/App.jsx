@@ -748,10 +748,8 @@ function pickMainForecastScore(scores, outcomes) {
   ].sort((a, b) => b.probability - a.probability);
   const exactTop = scores[0];
   const leader = leaders[0];
-  const runnerUp = leaders[1];
   const leaderScore = scores.find((row) => leader.matches(row)) || exactTop;
-  const leaderMargin = leader.probability - runnerUp.probability;
-  if (leader.type !== "draw" && leaderMargin >= 0.04) {
+  if (leader.type !== "draw") {
     return leaderScore;
   }
   return exactTop;
