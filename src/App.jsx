@@ -751,7 +751,7 @@ function pickMainForecastScore(scores, outcomes) {
   const runnerUp = leaders[1];
   const leaderScore = scores.find((row) => leader.matches(row)) || exactTop;
   const leaderMargin = leader.probability - runnerUp.probability;
-  if (leader.type !== "draw" && leaderMargin >= 0.08 && leaderScore.probability >= exactTop.probability * 0.72) {
+  if (leader.type !== "draw" && leaderMargin >= 0.04) {
     return leaderScore;
   }
   return exactTop;
@@ -823,6 +823,7 @@ function buildForecast(match, inputs) {
     awayLambda,
     topScores: scores.slice(0, 8),
     mainScore,
+    exactTopScore: scores[0],
     probabilities: {
       home: outcomes.homeWin,
       draw: outcomes.draw,
@@ -1414,8 +1415,8 @@ function ForecastView({ data }) {
           </div>
 
           <div className="scoreTriplet">
-            <div><span>主推</span><strong>{forecast.mainScore.score}</strong><small>概率 {percent(forecast.mainScore.probability)}</small></div>
-            <div><span>稳健</span><strong>{forecast.topScores[1]?.score || forecast.mainScore.score}</strong><small>次高概率</small></div>
+            <div><span>主推</span><strong>{forecast.mainScore.score}</strong><small>跟随最高赛果方向</small></div>
+            <div><span>概率最高</span><strong>{forecast.exactTopScore.score}</strong><small>单一比分 {percent(forecast.exactTopScore.probability)}</small></div>
             <div><span>进取</span><strong>{forecast.topScores.find((row) => Math.abs(row.home - row.away) >= 2)?.score || forecast.topScores[2]?.score}</strong><small>拉开比分</small></div>
           </div>
 
