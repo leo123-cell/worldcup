@@ -488,8 +488,11 @@ h2 {
 
 .forecastGrid {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 320px);
-  gap: 14px;
+  grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+  grid-template-areas:
+    "result result"
+    "controls intel";
+  gap: 16px;
   align-items: start;
 }
 
@@ -501,8 +504,12 @@ h2 {
   min-width: 0;
 }
 
+.forecastControls { grid-area: controls; }
+.forecastResult { grid-area: result; }
+.forecastIntel { grid-area: intel; }
+
 .forecastControls .factorGrid {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .factorGrid {
@@ -513,6 +520,7 @@ h2 {
 
 .sliderGrid {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   padding: 12px;
   border: 1px solid rgba(186, 230, 253, 0.9);
@@ -530,6 +538,10 @@ h2 {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(186, 230, 253, 0.7);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.64);
   color: var(--muted);
   font-weight: 700;
   min-width: 0;
@@ -732,11 +744,14 @@ h2 {
 
 @media (max-width: 1280px) {
   .forecastGrid {
-    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "result"
+      "controls"
+      "intel";
   }
 
   .forecastIntel {
-    grid-column: 1 / -1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: start;
   }
@@ -1432,6 +1447,7 @@ input:focus, select:focus, textarea:focus {
   }
   .statGrid, .detailGrid, .fieldGrid { grid-template-columns: 1fr; }
   .factorGrid,
+  .sliderGrid,
   .probGrid,
   .matchForecastHeader {
     grid-template-columns: 1fr;

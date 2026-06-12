@@ -146,9 +146,9 @@ function fairOdds(probability, margin = 0.94) {
 
 function marketFromRatings(homeRating, awayRating) {
   const diff = homeRating - awayRating;
-  const draw = clamp(0.29 - Math.abs(diff) * 0.006, 0.17, 0.31);
+  const draw = clamp(0.29 - Math.abs(diff) * 0.0075, 0.16, 0.31);
   const nonDraw = 1 - draw;
-  const homeShare = 1 / (1 + Math.exp(-diff / 14));
+  const homeShare = 1 / (1 + Math.exp(-diff / 10));
   const home = clamp(nonDraw * homeShare, 0.08, 0.82);
   const away = clamp(nonDraw - home, 0.06, 0.78);
   const total = home + draw + away;
@@ -693,6 +693,46 @@ function scoreProbabilityGrid(homeLambda, awayLambda, maxGoals = 6) {
   return rows.sort((a, b) => b.probability - a.probability);
 }
 
+function outcomeStatsFromScores(scores) {
+  const homeWin = scores.filter((row) => row.home > row.away).reduce((sum, row) => sum + row.probability, 0);
+  const draw = scores.filter((row) => row.home === row.away).reduce((sum, row) => sum + row.probability, 0);
+  const awayWin = scores.filter((row) => row.home < row.away).reduce((sum, row) => sum + row.probability, 0);
+  const totalMass = homeWin + draw + awayWin;
+  return {
+    homeWin: totalMass ? homeWin / totalMass : homeWin,
+    draw: totalMass ? draw / totalMass : draw,
+    awayWin: totalMass ? awayWin / totalMass : awayWin,
+  };
+}
+
+function calibrateLambdas(implied, targetGoals, seedHome, seedAway, netEdge) {
+  let best = {
+    homeLambda: seedHome,
+    awayLambda: seedAway,
+    loss: Number.POSITIVE_INFINITY,
+  };
+  for (let home = 0.3; home <= 3.6; home += 0.05) {
+    for (let away = 0.25; away <= 3.4; away += 0.05) {
+      const scores = scoreProbabilityGrid(home, away, 5);
+      const stats = outcomeStatsFromScores(scores);
+      const total = home + away;
+      const edge = home - away;
+      const loss =
+        Math.pow(stats.homeWin - implied[0], 2) * 3.4 +
+        Math.pow(stats.draw - implied[1], 2) * 3.8 +
+        Math.pow(stats.awayWin - implied[2], 2) * 3.4 +
+        Math.pow(total - targetGoals, 2) * 0.55 +
+        Math.pow(edge - netEdge * 0.85, 2) * 0.18 +
+        Math.pow(home - seedHome, 2) * 0.08 +
+        Math.pow(away - seedAway, 2) * 0.08;
+      if (loss < best.loss) {
+        best = { homeLambda: home, awayLambda: away, loss };
+      }
+    }
+  }
+  return best;
+}
+
 function buildForecast(match, inputs) {
   const homeValue = numeric(inputs.homeValue, 0);
   const awayValue = numeric(inputs.awayValue, 0);
@@ -713,14 +753,15 @@ function buildForecast(match, inputs) {
   const baseGoals = clamp(numeric(inputs.baseGoals, 2.55), 1.5, 4.2);
   const overUnderLine = numeric(inputs.overUnderLine, baseGoals);
   const drawPull = implied[1] ? (implied[1] - 0.26) * 0.7 : 0;
-  const totalGoals = clamp(baseGoals * 0.55 + overUnderLine * 0.45 + (numeric(inputs.homeAttack, 5) + numeric(inputs.awayAttack, 5) - 10) * 0.08 - Math.max(drawPull, 0) * 0.35, 1.4, 4.6);
-  const homeLambda = clamp(totalGoals / 2 + netEdge * 0.58 + numeric(inputs.homeAttack, 5) * 0.035 - numeric(inputs.awayDefense, 5) * 0.025, 0.25, 3.6);
-  const awayLambda = clamp(totalGoals - homeLambda, 0.2, 3.4);
+  const overBias = clamp((1 / numeric(inputs.overOdds, 1.9) - 1 / numeric(inputs.underOdds, 1.9)) * 0.9, -0.28, 0.28);
+  const totalGoals = clamp(baseGoals * 0.42 + overUnderLine * 0.58 + overBias + (numeric(inputs.homeAttack, 5) + numeric(inputs.awayAttack, 5) - 10) * 0.07 - Math.max(drawPull, 0) * 0.22, 1.4, 4.6);
+  const seedHomeLambda = clamp(totalGoals / 2 + netEdge * 0.58 + numeric(inputs.homeAttack, 5) * 0.035 - numeric(inputs.awayDefense, 5) * 0.025, 0.25, 3.6);
+  const seedAwayLambda = clamp(totalGoals - seedHomeLambda, 0.2, 3.4);
+  const calibrated = calibrateLambdas(implied, totalGoals, seedHomeLambda, seedAwayLambda, netEdge);
+  const homeLambda = clamp(calibrated.homeLambda, 0.25, 3.6);
+  const awayLambda = clamp(calibrated.awayLambda, 0.2, 3.4);
   const scores = scoreProbabilityGrid(homeLambda, awayLambda);
-  const homeWin = scores.filter((row) => row.home > row.away).reduce((sum, row) => sum + row.probability, 0);
-  const draw = scores.filter((row) => row.home === row.away).reduce((sum, row) => sum + row.probability, 0);
-  const awayWin = scores.filter((row) => row.home < row.away).reduce((sum, row) => sum + row.probability, 0);
-  const totalMass = homeWin + draw + awayWin;
+  const outcomes = outcomeStatsFromScores(scores);
   const factors = [
     ["市场赔率", marketEdge, "赔率会聚合公开信息，是当前权重最高的输入。"],
     ["盘口让球", asianEdge, "亚洲让球盘反映强弱和赔付压力，临场变化需要重点关注。"],
@@ -738,9 +779,9 @@ function buildForecast(match, inputs) {
     topScores: scores.slice(0, 8),
     mainScore: scores[0],
     probabilities: {
-      home: totalMass ? homeWin / totalMass : homeWin,
-      draw: totalMass ? draw / totalMass : draw,
-      away: totalMass ? awayWin / totalMass : awayWin,
+      home: outcomes.homeWin,
+      draw: outcomes.draw,
+      away: outcomes.awayWin,
     },
     implied,
     netEdge,
