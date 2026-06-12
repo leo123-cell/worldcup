@@ -417,9 +417,10 @@ h2 {
 .forecastLayout { display: grid; gap: 18px; }
 
 .forecastScreen {
-  margin: -8px;
+  margin: 0;
   padding: 14px;
   border-radius: 10px;
+  overflow: hidden;
   background:
     radial-gradient(circle at 24% 10%, rgba(56, 189, 248, 0.18), transparent 34%),
     linear-gradient(180deg, #e0f2fe, #d9f2fb 42%, #edf7ff 100%);
@@ -432,6 +433,7 @@ h2 {
   box-shadow: 0 20px 44px rgba(14, 116, 144, 0.14);
   backdrop-filter: blur(12px);
   padding: 16px;
+  min-width: 0;
 }
 
 .forecastHero {
@@ -486,15 +488,21 @@ h2 {
 
 .forecastGrid {
   display: grid;
-  grid-template-columns: 330px minmax(560px, 1fr) 330px;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr) minmax(280px, 320px);
   gap: 14px;
   align-items: start;
 }
 
 .forecastControls,
-.forecastResult {
+.forecastResult,
+.forecastIntel {
   display: grid;
   gap: 14px;
+  min-width: 0;
+}
+
+.forecastControls .factorGrid {
+  grid-template-columns: 1fr;
 }
 
 .factorGrid {
@@ -520,26 +528,31 @@ h2 {
 
 .sliderGrid label {
   display: grid;
-  grid-template-columns: 1fr 34px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   color: var(--muted);
   font-weight: 700;
+  min-width: 0;
 }
 
 .sliderGrid input {
   grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 24px;
   padding: 0;
 }
 
 .matchForecastHeader {
   display: grid;
-  grid-template-columns: 1fr 220px 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(170px, 210px) minmax(0, 1fr);
   gap: 14px;
   align-items: center;
 }
 
 .matchForecastHeader > div {
+  min-width: 0;
   min-height: 150px;
   display: grid;
   place-items: center;
@@ -551,16 +564,22 @@ h2 {
   text-align: center;
 }
 
-.matchForecastHeader strong { font-size: 28px; }
+.matchForecastHeader strong {
+  max-width: 100%;
+  font-size: clamp(22px, 2vw, 28px);
+  overflow-wrap: anywhere;
+}
 .matchForecastHeader span,
 .matchForecastHeader small {
   color: var(--muted);
   font-weight: 800;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .mainScoreBox strong {
   color: var(--navy);
-  font-size: 64px;
+  font-size: clamp(44px, 5vw, 64px);
 }
 
 .probGrid {
@@ -684,6 +703,8 @@ h2 {
 }
 
 .forecastIntel textarea {
+  width: 100%;
+  min-width: 0;
   min-height: 74px;
   resize: vertical;
 }
@@ -707,6 +728,23 @@ h2 {
   margin: 0;
   color: var(--muted);
   line-height: 1.7;
+}
+
+@media (max-width: 1280px) {
+  .forecastGrid {
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  }
+
+  .forecastIntel {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .forecastIntel h2,
+  .forecastIntel .intelCard {
+    grid-column: 1 / -1;
+  }
 }
 
 .stat {
@@ -1356,8 +1394,14 @@ input:focus, select:focus, textarea:focus {
   .twoColumn { grid-template-columns: 1fr; }
   .forecastHero,
   .forecastGrid,
-  .forecastPanels {
+  .forecastPanels,
+  .forecastIntel {
     grid-template-columns: 1fr;
+  }
+  .forecastIntel,
+  .forecastIntel h2,
+  .forecastIntel .intelCard {
+    grid-column: auto;
   }
   .statGrid, .detailGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .eventBanner {

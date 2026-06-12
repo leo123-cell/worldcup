@@ -84,6 +84,124 @@ const defaultForecastInputs = {
   lineupText: "首发判断：录入门将、中卫、后腰、前锋等关键位置可用性。",
 };
 
+const teamForecastProfiles = {
+  阿根廷: { rating: 91, value: 920, attack: 9, defense: 8 },
+  法国: { rating: 90, value: 980, attack: 9, defense: 8 },
+  英格兰: { rating: 88, value: 1080, attack: 9, defense: 8 },
+  西班牙: { rating: 88, value: 880, attack: 9, defense: 8 },
+  巴西: { rating: 87, value: 920, attack: 9, defense: 7 },
+  葡萄牙: { rating: 86, value: 870, attack: 9, defense: 7 },
+  荷兰: { rating: 84, value: 720, attack: 8, defense: 8 },
+  德国: { rating: 84, value: 760, attack: 8, defense: 7 },
+  比利时: { rating: 82, value: 560, attack: 8, defense: 7 },
+  乌拉圭: { rating: 80, value: 480, attack: 8, defense: 7 },
+  克罗地亚: { rating: 79, value: 430, attack: 7, defense: 7 },
+  摩洛哥: { rating: 79, value: 410, attack: 7, defense: 8 },
+  哥伦比亚: { rating: 78, value: 390, attack: 8, defense: 7 },
+  瑞士: { rating: 77, value: 310, attack: 7, defense: 7 },
+  美国: { rating: 76, value: 330, attack: 7, defense: 7 },
+  日本: { rating: 76, value: 290, attack: 7, defense: 7 },
+  墨西哥: { rating: 75, value: 230, attack: 7, defense: 7 },
+  塞内加尔: { rating: 75, value: 260, attack: 7, defense: 7 },
+  厄瓜多尔: { rating: 74, value: 250, attack: 7, defense: 7 },
+  奥地利: { rating: 74, value: 280, attack: 7, defense: 7 },
+  土耳其: { rating: 73, value: 260, attack: 7, defense: 6 },
+  韩国: { rating: 72, value: 190, attack: 7, defense: 6 },
+  加拿大: { rating: 72, value: 210, attack: 7, defense: 6 },
+  挪威: { rating: 72, value: 360, attack: 8, defense: 6 },
+  苏格兰: { rating: 70, value: 180, attack: 6, defense: 7 },
+  瑞典: { rating: 70, value: 190, attack: 6, defense: 7 },
+  伊朗: { rating: 69, value: 95, attack: 6, defense: 7 },
+  澳大利亚: { rating: 69, value: 90, attack: 6, defense: 6 },
+  捷克: { rating: 68, value: 160, attack: 6, defense: 6 },
+  波黑: { rating: 67, value: 120, attack: 6, defense: 6 },
+  巴拉圭: { rating: 67, value: 130, attack: 6, defense: 6 },
+  加纳: { rating: 67, value: 150, attack: 6, defense: 6 },
+  乌克兰: { rating: 67, value: 220, attack: 6, defense: 6 },
+  埃及: { rating: 66, value: 150, attack: 6, defense: 6 },
+  科特迪瓦: { rating: 66, value: 180, attack: 6, defense: 6 },
+  突尼斯: { rating: 64, value: 70, attack: 5, defense: 6 },
+  南非: { rating: 63, value: 55, attack: 5, defense: 6 },
+  阿尔及利亚: { rating: 63, value: 120, attack: 6, defense: 5 },
+  卡塔尔: { rating: 62, value: 55, attack: 5, defense: 5 },
+  沙特阿拉伯: { rating: 62, value: 65, attack: 5, defense: 5 },
+  乌兹别克斯坦: { rating: 61, value: 60, attack: 5, defense: 5 },
+  新西兰: { rating: 60, value: 35, attack: 5, defense: 5 },
+  巴拿马: { rating: 59, value: 45, attack: 5, defense: 5 },
+  伊拉克: { rating: 58, value: 40, attack: 5, defense: 5 },
+  约旦: { rating: 57, value: 35, attack: 5, defense: 5 },
+  海地: { rating: 56, value: 30, attack: 5, defense: 4 },
+  佛得角: { rating: 56, value: 45, attack: 5, defense: 5 },
+  库拉索: { rating: 54, value: 28, attack: 4, defense: 4 },
+  刚果民主共和国: { rating: 54, value: 65, attack: 5, defense: 4 },
+};
+
+function teamForecastProfile(teamName) {
+  return teamForecastProfiles[teamName] || { rating: 65, value: 100, attack: 6, defense: 6 };
+}
+
+function fairOdds(probability, margin = 0.94) {
+  return (1 / clamp(probability * margin, 0.05, 0.82)).toFixed(2);
+}
+
+function marketFromRatings(homeRating, awayRating) {
+  const diff = homeRating - awayRating;
+  const draw = clamp(0.29 - Math.abs(diff) * 0.006, 0.17, 0.31);
+  const nonDraw = 1 - draw;
+  const homeShare = 1 / (1 + Math.exp(-diff / 14));
+  const home = clamp(nonDraw * homeShare, 0.08, 0.82);
+  const away = clamp(nonDraw - home, 0.06, 0.78);
+  const total = home + draw + away;
+  return [home / total, draw / total, away / total];
+}
+
+function lineFromDiff(diff) {
+  if (diff >= 18) return "-1.5";
+  if (diff >= 13) return "-1";
+  if (diff >= 8) return "-0.75";
+  if (diff >= 4) return "-0.25";
+  if (diff <= -18) return "1.5";
+  if (diff <= -13) return "1";
+  if (diff <= -8) return "0.75";
+  if (diff <= -4) return "0.25";
+  return "0";
+}
+
+function forecastInputsForMatch(match) {
+  if (!match) return defaultForecastInputs;
+  const home = teamForecastProfile(match.homeTeam);
+  const away = teamForecastProfile(match.awayTeam);
+  const diff = home.rating - away.rating;
+  const [homeProb, drawProb, awayProb] = marketFromRatings(home.rating, away.rating);
+  const attackTempo = (home.attack + away.attack) / 2;
+  const defenseDrag = (home.defense + away.defense) / 2;
+  const totalLine = clamp(2.5 + (attackTempo - 6.5) * 0.18 - (defenseDrag - 6.5) * 0.1, 2, 3.25);
+  return {
+    ...defaultForecastInputs,
+    homeValue: String(home.value),
+    awayValue: String(away.value),
+    homeOdds: fairOdds(homeProb),
+    drawOdds: fairOdds(drawProb),
+    awayOdds: fairOdds(awayProb),
+    homeAttack: String(home.attack),
+    homeDefense: String(home.defense),
+    awayAttack: String(away.attack),
+    awayDefense: String(away.defense),
+    asianLine: lineFromDiff(diff),
+    overUnderLine: totalLine.toFixed(2),
+    baseGoals: totalLine.toFixed(2),
+    overOdds: attackTempo >= defenseDrag ? "1.86" : "1.96",
+    underOdds: attackTempo >= defenseDrag ? "1.98" : "1.88",
+    styleEdge: String(clamp(Math.round(diff / 12), -3, 3)),
+    formEdge: "0",
+    marketNote: `${match.homeTeam} vs ${match.awayTeam} 的盘口为模型按球队实力预填，赛前应按真实体彩/市场赔率校正。`,
+    homeNews: `${match.homeTeam} 新闻：补充首发、伤停、轮换、定位球和赛前发布会信息。`,
+    awayNews: `${match.awayTeam} 新闻：补充旅行、适应场地、防线可用性和反击效率信息。`,
+    h2hText: `${match.homeTeam} 与 ${match.awayTeam} 的直接交手样本不足时，可参考同洲或相近风格球队表现。`,
+    lineupText: "首发判断：重点看门将、中卫、后腰和中锋是否主力出战。",
+  };
+}
+
 const defaultParticipants = [
   "新田",
   "老嘟",
@@ -1029,13 +1147,20 @@ function ForecastView({ data }) {
     .sort((a, b) => new Date(a.kickoffTime).getTime() - new Date(b.kickoffTime).getTime())
     .filter((match) => !matchOutcome(match));
   const matches = upcoming.length ? upcoming : data.matches;
-  const [matchId, setMatchId] = useState(matches[0]?.id || "");
-  const [inputs, setInputs] = useState(defaultForecastInputs);
+  const initialMatch = matches[0] || data.matches[0];
+  const [matchId, setMatchId] = useState(initialMatch?.id || "");
+  const [inputs, setInputs] = useState(() => forecastInputsForMatch(initialMatch));
   const selectedMatch = data.matches.find((match) => match.id === matchId) || matches[0] || data.matches[0];
   const forecast = selectedMatch ? buildForecast(selectedMatch, inputs) : null;
 
   function setInput(field, value) {
     setInputs((next) => ({ ...next, [field]: value }));
+  }
+
+  function changeForecastMatch(nextMatchId) {
+    const nextMatch = data.matches.find((match) => match.id === nextMatchId) || matches[0] || data.matches[0];
+    setMatchId(nextMatchId);
+    setInputs(forecastInputsForMatch(nextMatch));
   }
 
   function loadMarketPreset() {
@@ -1100,7 +1225,7 @@ function ForecastView({ data }) {
             <button type="button" className="ghost compactBtn" onClick={loadMarketPreset}>载入示例</button>
           </div>
           <label>预测比赛
-            <select value={selectedMatch.id} onChange={(event) => setMatchId(event.target.value)}>
+            <select value={selectedMatch.id} onChange={(event) => changeForecastMatch(event.target.value)}>
               {matches.map((match) => (
                 <option key={match.id} value={match.id}>
                   {match.matchNo} {match.homeTeam} vs {match.awayTeam} · {match.kickoffTime}
