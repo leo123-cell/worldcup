@@ -740,6 +740,23 @@ function calibrateLambdas(implied, targetGoals, seedHome, seedAway, netEdge) {
   return best;
 }
 
+function pickMainForecastScore(scores, outcomes) {
+  const leaders = [
+    { type: "home", probability: outcomes.homeWin, matches: (row) => row.home > row.away },
+    { type: "draw", probability: outcomes.draw, matches: (row) => row.home === row.away },
+    { type: "away", probability: outcomes.awayWin, matches: (row) => row.home < row.away },
+  ].sort((a, b) => b.probability - a.probability);
+  const exactTop = scores[0];
+  const leader = leaders[0];
+  const runnerUp = leaders[1];
+  const leaderScore = scores.find((row) => leader.matches(row)) || exactTop;
+  const leaderMargin = leader.probability - runnerUp.probability;
+  if (leader.type !== "draw" && leaderMargin >= 0.08 && leaderScore.probability >= exactTop.probability * 0.72) {
+    return leaderScore;
+  }
+  return exactTop;
+}
+
 function buildForecast(match, inputs) {
   const homeValue = numeric(inputs.homeValue, 0);
   const awayValue = numeric(inputs.awayValue, 0);
@@ -789,6 +806,7 @@ function buildForecast(match, inputs) {
   const adjustedTotalGoals = homeLambda + awayLambda;
   const scores = scoreProbabilityGrid(homeLambda, awayLambda);
   const outcomes = outcomeStatsFromScores(scores);
+  const mainScore = pickMainForecastScore(scores, outcomes);
   const factors = [
     ["市场赔率", marketEdge, "赔率会聚合公开信息，是当前权重最高的输入。"],
     ["盘口让球", asianEdge, "亚洲让球盘反映强弱和赔付压力，临场变化需要重点关注。"],
@@ -804,7 +822,7 @@ function buildForecast(match, inputs) {
     homeLambda,
     awayLambda,
     topScores: scores.slice(0, 8),
-    mainScore: scores[0],
+    mainScore,
     probabilities: {
       home: outcomes.homeWin,
       draw: outcomes.draw,
