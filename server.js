@@ -17,6 +17,41 @@ const stateFile = path.join(__dirname, "data", "shared-state.json");
 const app = express();
 app.use(express.json({ limit: "20mb" }));
 
+function mergeState(current, incoming) {
+  return {
+    ...current,
+    ...incoming,
+    participants: mergeById(current.participants, incoming.participants),
+    matches: mergeById(current.matches, incoming.matches),
+    tickets: mergeById(current.tickets, incoming.tickets),
+    locked: Boolean(current.locked || incoming.locked),
+    lockedAt: incoming.lockedAt || current.lockedAt,
+  };
+}
+
+function mergeById(currentItems, incomingItems) {
+  const currentList = Array.isArray(currentItems) ? currentItems : [];
+  const incomingList = Array.isArray(incomingItems) ? incomingItems : [];
+  const currentMap = new Map(currentList.filter((item) => item?.id).map((item) => [item.id, item]));
+  const incomingMap = new Map(incomingList.filter((item) => item?.id).map((item) => [item.id, item]));
+  const ids = [
+    ...incomingList.filter((item) => item?.id).map((item) => item.id),
+    ...currentList.filter((item) => item?.id && !incomingMap.has(item.id)).map((item) => item.id),
+  ];
+  return ids.map((id) => {
+    const current = currentMap.get(id);
+    const incoming = incomingMap.get(id);
+    if (!current) return incoming;
+    if (!incoming) return current;
+    return itemTime(incoming) >= itemTime(current) ? incoming : current;
+  });
+}
+
+function itemTime(item) {
+  const value = Date.parse(item?.updatedAt || item?.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
+}
+
 app.get("/api/state", async (_req, res) => {
   try {
     if (!existsSync(stateFile)) {
@@ -36,6 +71,27 @@ app.post("/api/state", async (req, res) => {
     let current = null;
     if (existsSync(stateFile)) {
       current = JSON.parse(await readFile(stateFile, "utf8"));
+    }
+    if (req.query.delete === "ticket") {
+      const ticketId = req.body?.ticketId;
+      if (!ticketId) {
+        return res.status(400).json({ error: "缺少票据 ID。" });
+      }
+      const existing = current || { participants: [], matches: [], tickets: [], locked: false };
+      if (existing.locked) {
+        return res.status(409).json({ error: "榜单已锁定，不能删除票据。" });
+      }
+      const tickets = Array.isArray(existing.tickets) ? existing.tickets : [];
+      const next = {
+        ...existing,
+        tickets: tickets.filter((ticket) => ticket.id !== ticketId),
+      };
+      if (current) {
+        const backupFile = path.join(path.dirname(stateFile), `shared-state-backup-${Date.now()}.json`);
+        await writeFile(backupFile, JSON.stringify(current, null, 2), "utf8");
+      }
+      await writeFile(stateFile, JSON.stringify(next, null, 2), "utf8");
+      return res.json({ ok: true, savedAt: new Date().toISOString(), ticketCount: next.tickets.length });
     }
     if (req.query.append === "ticket") {
       const ticket = req.body?.ticket;
@@ -74,11 +130,12 @@ app.post("/api/state", async (req, res) => {
         nextTickets,
       });
     }
+    const nextState = current && !allowTicketShrink ? mergeState(current, req.body) : req.body;
     if (current) {
       const backupFile = path.join(path.dirname(stateFile), `shared-state-backup-${Date.now()}.json`);
       await writeFile(backupFile, JSON.stringify(current, null, 2), "utf8");
     }
-    await writeFile(stateFile, JSON.stringify(req.body, null, 2), "utf8");
+    await writeFile(stateFile, JSON.stringify(nextState, null, 2), "utf8");
     res.json({ ok: true, savedAt: new Date().toISOString() });
   } catch (error) {
     console.error(error);

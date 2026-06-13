@@ -28,6 +28,24 @@ export default async (req: Request) => {
       return json({ error: "\u8bf7\u6c42\u6570\u636e\u683c\u5f0f\u4e0d\u6b63\u786e\u3002" }, 400);
     }
     const current = await store.get(STATE_KEY, { type: "json" });
+    if (url.searchParams.get("delete") === "ticket") {
+      const ticketId = (body as any).ticketId;
+      if (!ticketId) return json({ error: "缺少票据 ID。" }, 400);
+      const existing = current && typeof current === "object"
+        ? current as any
+        : { participants: [], matches: [], tickets: [], locked: false };
+      if (existing.locked) return json({ error: "榜单已锁定，不能删除票据。" }, 409);
+      const tickets = Array.isArray(existing.tickets) ? existing.tickets : [];
+      const next = {
+        ...existing,
+        tickets: tickets.filter((ticket: any) => ticket.id !== ticketId),
+      };
+      if (current) {
+        await store.setJSON(`${BACKUP_PREFIX}${Date.now()}`, current);
+      }
+      await store.setJSON(STATE_KEY, next);
+      return json({ ok: true, savedAt: new Date().toISOString(), ticketCount: next.tickets.length });
+    }
     if (url.searchParams.get("append") === "ticket") {
       const ticket = (body as any).ticket;
       if (!ticket?.id) return json({ error: "\u7f3a\u5c11\u7968\u636e\u6570\u636e\u3002" }, 400);
@@ -65,10 +83,13 @@ export default async (req: Request) => {
         nextTickets,
       }, 409);
     }
+    const nextState = current && typeof current === "object" && !allowTicketShrink
+      ? mergeState(current as any, body as any)
+      : body;
     if (current) {
       await store.setJSON(`${BACKUP_PREFIX}${Date.now()}`, current);
     }
-    await store.setJSON(STATE_KEY, body);
+    await store.setJSON(STATE_KEY, nextState);
     return json({ ok: true, savedAt: new Date().toISOString() });
   }
 
@@ -85,4 +106,39 @@ function json(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
+}
+
+function mergeState(current: any, incoming: any) {
+  return {
+    ...current,
+    ...incoming,
+    participants: mergeById(current.participants, incoming.participants),
+    matches: mergeById(current.matches, incoming.matches),
+    tickets: mergeById(current.tickets, incoming.tickets),
+    locked: Boolean(current.locked || incoming.locked),
+    lockedAt: incoming.lockedAt || current.lockedAt,
+  };
+}
+
+function mergeById(currentItems: any, incomingItems: any) {
+  const currentList = Array.isArray(currentItems) ? currentItems : [];
+  const incomingList = Array.isArray(incomingItems) ? incomingItems : [];
+  const currentMap = new Map(currentList.filter((item: any) => item?.id).map((item: any) => [item.id, item]));
+  const incomingMap = new Map(incomingList.filter((item: any) => item?.id).map((item: any) => [item.id, item]));
+  const ids = [
+    ...incomingList.filter((item: any) => item?.id).map((item: any) => item.id),
+    ...currentList.filter((item: any) => item?.id && !incomingMap.has(item.id)).map((item: any) => item.id),
+  ];
+  return ids.map((id) => {
+    const current = currentMap.get(id);
+    const incoming = incomingMap.get(id);
+    if (!current) return incoming;
+    if (!incoming) return current;
+    return itemTime(incoming) >= itemTime(current) ? incoming : current;
+  });
+}
+
+function itemTime(item: any) {
+  const value = Date.parse(item?.updatedAt || item?.createdAt || "");
+  return Number.isFinite(value) ? value : 0;
 }

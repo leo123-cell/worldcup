@@ -498,6 +498,18 @@ async function appendSharedTicket(ticket, matches = [], participants = []) {
   }
 }
 
+async function deleteSharedTicket(ticketId) {
+  const response = await fetch("/api/state?delete=ticket", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticketId }),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || "共享票据删除失败");
+  }
+}
+
 function compressImageFile(file, maxSide = 1100, quality = 0.74) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1167,7 +1179,13 @@ export default function App() {
 
   function removeTicket(ticketId) {
     if (!window.confirm("确认删除这张票据？删除后会重新计算统计和排行榜。")) return;
-    commit({ ...data, tickets: data.tickets.filter((ticket) => ticket.id !== ticketId) }, { allowTicketShrink: true });
+    const nextData = migrateData({ ...data, tickets: data.tickets.filter((ticket) => ticket.id !== ticketId) });
+    setData(nextData);
+    saveData(nextData);
+    setSyncStatus("正在删除共享票据...");
+    deleteSharedTicket(ticketId)
+      .then(() => setSyncStatus(`共享票据已删除：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`))
+      .catch((error) => setSyncStatus(`共享票据删除失败：${error.message}`));
   }
 
   function refreshMatchStatuses() {
