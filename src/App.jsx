@@ -2172,7 +2172,9 @@ function TicketsView({ data, filter, setFilter, participantFilter, setParticipan
         <div className="ticketGrid">
           {tickets.map((ticket) => (
             <article className="ticketCard" key={ticket.id}>
-              <img src={ticket.imageUrl} alt="票据" />
+              {ticket.imageUrl
+                ? <img src={ticket.imageUrl} alt="票据" />
+                : <div className="ticketImagePlaceholder">图片已归档</div>}
               <div className="ticketBody">
                 <div className="ticketTop">
                   <div>
