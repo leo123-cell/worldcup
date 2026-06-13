@@ -1156,8 +1156,37 @@ input:focus, select:focus, textarea:focus {
   background: white;
 }
 
+.betItemIndex {
+  grid-column: 1 / -1;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 850;
+}
+
 .wideField {
   grid-column: 1 / -1;
+}
+
+.manualMatchFields {
+  display: grid;
+  grid-template-columns: 0.7fr 1fr 1fr;
+  gap: 10px;
+  padding: 10px;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.betScoreInputs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.betItemActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .matchLink {
@@ -1575,6 +1604,15 @@ input:focus, select:focus, textarea:focus {
   .ticketCard { grid-template-columns: 1fr; }
   .betItemRow {
     grid-template-columns: 1fr;
+  }
+  .manualMatchFields {
+    grid-template-columns: 1fr;
+  }
+  .betItemActions {
+    justify-content: stretch;
+  }
+  .betItemActions button {
+    flex: 1;
   }
   .ticketCard > img {
     max-height: 220px;

@@ -550,6 +550,34 @@ function canSubmitTicket(matches, purchaseTime) {
   return { ok: true, reason: "" };
 }
 
+function validateBetItems(items, matches) {
+  if (!items.length) return { ok: false, reason: "至少填写 1 个投注项。" };
+  for (let index = 0; index < items.length; index += 1) {
+    const item = items[index];
+    const line = `投注项 ${index + 1}`;
+    const matched = findMatchForBet(item, matches);
+    if (!matched && (!item.matchNo || !item.homeTeam || !item.awayTeam)) {
+      return { ok: false, reason: `${line} 请关联赛程，或手填场次、主队和客队。` };
+    }
+    const market = normalizeMarket(item.market || item.playType, item.selection);
+    const selection = normalizeSelection(item.selection);
+    if (market === "胜平负" || market === "让球胜平负") {
+      if (!["胜", "平", "负"].includes(selection)) return { ok: false, reason: `${line} 请选择胜、平或负。` };
+      if (market === "让球胜平负" && !Number.isFinite(Number(item.handicap))) {
+        return { ok: false, reason: `${line} 请填写让球数。主队让 1 球填 -1，主队受让 1 球填 1。` };
+      }
+    } else if (market === "比分") {
+      if (!/^\d+:\d+$/.test(selection)) return { ok: false, reason: `${line} 请完整填写比分，例如 2:1。` };
+    } else if (market === "总进球") {
+      if (!["0", "1", "2", "3", "4", "5", "6", "7+"].includes(selection)) return { ok: false, reason: `${line} 请选择总进球数。` };
+    }
+    if (item.odds !== "" && item.odds !== undefined && item.odds !== null && !Number.isFinite(Number(item.odds))) {
+      return { ok: false, reason: `${line} 的赔率格式不正确。` };
+    }
+  }
+  return { ok: true, reason: "" };
+}
+
 function makeTicketUid(participantName) {
   const safeName = String(participantName || "user").trim().replace(/\s+/g, "");
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 17);
@@ -558,6 +586,7 @@ function makeTicketUid(participantName) {
 
 function normalizeSelection(value) {
   const text = String(value || "");
+  if (/^\s*7\s*\+\s*$/.test(text)) return "7+";
   const score = text.match(/(\d+)\s*[:：-]\s*(\d+)/);
   if (score) return `${Number(score[1])}:${Number(score[2])}`;
   if (/^\d+$/.test(text.trim())) return text.trim();
@@ -622,7 +651,9 @@ function judgeBetItem(item, match) {
   }
 
   if (market === "总进球") {
-    return String(scores.home + scores.away) === selection;
+    const totalGoals = scores.home + scores.away;
+    if (selection === "7+") return totalGoals >= 7;
+    return String(totalGoals) === selection;
   }
 
   return null;
@@ -658,6 +689,31 @@ function betOddsProduct(items) {
 function suggestedPassType(items) {
   const count = (items || []).length;
   return count > 1 ? `${count}串1` : "单关";
+}
+
+function defaultBetItem() {
+  return {
+    matchNo: "",
+    homeTeam: "",
+    awayTeam: "",
+    market: "胜平负",
+    selection: "",
+    odds: "",
+    handicap: "",
+    matchId: "",
+    matchUid: "",
+  };
+}
+
+function scoreSelectionParts(selection) {
+  const raw = String(selection || "").replace("：", ":");
+  const partial = raw.match(/^(\d*)\s*:\s*(\d*)$/);
+  if (partial) return { home: partial[1], away: partial[2] };
+  const score = normalizeSelection(selection).match(/^(\d+):(\d+)$/);
+  return {
+    home: score ? score[1] : "",
+    away: score ? score[2] : "",
+  };
 }
 
 function ticketDraftMath(form) {
@@ -1623,7 +1679,7 @@ function UploadView({ data, appendTicket, locked }) {
     multiplier: "",
     estimatedPrize: "",
     selectionText: "",
-    betItems: [],
+    betItems: [defaultBetItem()],
     matchIds: [],
     imageUrl: "",
   });
@@ -1644,6 +1700,11 @@ function UploadView({ data, appendTicket, locked }) {
       return;
     }
     const participant = data.participants.find((person) => person.id === form.participantId);
+    const itemCheck = validateBetItems(form.betItems, data.matches);
+    if (!itemCheck.ok) {
+      alert(itemCheck.reason);
+      return;
+    }
     const addedMatches = [];
     const matchedIds = new Set(form.matchIds);
     form.betItems.forEach((item) => {
@@ -1723,7 +1784,7 @@ function UploadView({ data, appendTicket, locked }) {
       estimatedPrize: "",
       playType: "单关",
       selectionText: "",
-      betItems: [],
+      betItems: [defaultBetItem()],
       matchIds: [],
       imageUrl: "",
     }));
@@ -1736,7 +1797,7 @@ function UploadView({ data, appendTicket, locked }) {
         <div className="panelHeader">
           <div>
             <h2>上传体彩单</h2>
-            <p>上传票据图片后手动填写字段，提交无需等待识别。</p>
+            <p>按票面逐行填写：比赛、玩法、选择、赔率；串关和混合玩法都可以录。</p>
           </div>
         </div>
         <label>
@@ -1763,7 +1824,6 @@ function UploadView({ data, appendTicket, locked }) {
           );
         })()}
         <div className="fieldGrid">
-          <label>票据UID<input value={makeTicketUid(data.participants.find((person) => person.id === form.participantId)?.name)} readOnly /></label>
           <label>购买时间<input type="datetime-local" value={form.purchaseTime} onChange={(e) => setForm({ ...form, purchaseTime: e.target.value })} /></label>
           <label>过关方式
             <select value={form.playType} onChange={(e) => setForm({ ...form, playType: e.target.value })}>
@@ -1786,7 +1846,7 @@ function UploadView({ data, appendTicket, locked }) {
             setForm({ ...form, playType: nextPassType, betItems, matchIds: Array.from(new Set([...form.matchIds, ...matchedIds])) });
           }}
         />
-        <label>投注内容<textarea value={form.selectionText} onChange={(e) => setForm({ ...form, selectionText: e.target.value })} rows="3" /></label>
+        <label>备注，可不填<textarea value={form.selectionText} onChange={(e) => setForm({ ...form, selectionText: e.target.value })} rows="2" placeholder="比如票面特殊说明、手工核对备注" /></label>
         <button className="primary wide" disabled={locked}><Check size={17} /> 确认提交</button>
       </form>
 
@@ -1804,21 +1864,15 @@ function BetItemsEditor({ items, matches, onChange }) {
   }
 
   function emptyItem() {
-    return {
-      matchNo: "",
-      homeTeam: "",
-      awayTeam: "",
-      market: "胜平负",
-      selection: "",
-      odds: "",
-      handicap: "",
-      matchId: "",
-      matchUid: "",
-    };
+    return defaultBetItem();
   }
 
   function addItem() {
     onChange([...items, emptyItem()]);
+  }
+
+  function duplicateItem(index) {
+    onChange([...items.slice(0, index + 1), { ...items[index] }, ...items.slice(index + 1)]);
   }
 
   function removeItem(index) {
@@ -1827,13 +1881,38 @@ function BetItemsEditor({ items, matches, onChange }) {
 
   function selectionField(item, index, market) {
     if (market === "比分") {
-      return <label>比分选择<input value={normalizeSelection(item.selection)} onChange={(e) => updateItem(index, { selection: e.target.value })} placeholder="如 2:1" /></label>;
+      const score = scoreSelectionParts(item.selection);
+      return (
+        <label>比分选择
+          <div className="scoreInputs betScoreInputs">
+            <input
+              type="number"
+              min="0"
+              value={score.home}
+              onChange={(e) => updateItem(index, { selection: `${e.target.value}:${score.away}` })}
+              aria-label="主队比分选择"
+            />
+            <span>:</span>
+            <input
+              type="number"
+              min="0"
+              value={score.away}
+              onChange={(e) => updateItem(index, { selection: `${score.home}:${e.target.value}` })}
+              aria-label="客队比分选择"
+            />
+          </div>
+        </label>
+      );
     }
     if (market === "总进球") {
-      return <label>总进球<input type="number" min="0" value={item.selection || ""} onChange={(e) => updateItem(index, { selection: e.target.value })} placeholder="如 3" /></label>;
-    }
-    if (market === "半全场") {
-      return <label>选择<input value={item.selection || ""} onChange={(e) => updateItem(index, { selection: e.target.value })} placeholder="暂不自动结算" /></label>;
+      return (
+        <label>总进球
+          <select value={normalizeSelection(item.selection)} onChange={(e) => updateItem(index, { selection: e.target.value })}>
+            <option value="">请选择</option>
+            {["0", "1", "2", "3", "4", "5", "6", "7+"].map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+        </label>
+      );
     }
     return (
       <label>选择
@@ -1851,17 +1930,18 @@ function BetItemsEditor({ items, matches, onChange }) {
     <div className="betEditor">
       <div className="betEditorHeader">
         <div>
-          <strong>字段化投注项</strong>
-          <span>手动填写每一场比赛、玩法、选择和赔率</span>
+          <strong>投注项</strong>
+          <span>一张票买几行就填几行；混合玩法串关也逐行填写</span>
         </div>
         <button className="ghost compactBtn" type="button" onClick={addItem}><Plus size={15} /> 新增投注项</button>
       </div>
-      {!items.length && <div className="empty compact">暂无投注项，请点击“新增投注项”手动填写。</div>}
+      {!items.length && <div className="empty compact">暂无投注项，请点击“新增投注项”。</div>}
       {items.map((item, index) => {
         const matched = findMatchForBet(item, matches);
         const market = normalizeMarket(item.market || item.playType, item.selection);
         return (
           <div className="betItemRow" key={`${item.matchNo}-${index}`}>
+            <div className="betItemIndex">投注项 {index + 1}</div>
             <label className="wideField">关联赛程
               <select
                 value={matched?.id || item.matchId || ""}
@@ -1887,16 +1967,12 @@ function BetItemsEditor({ items, matches, onChange }) {
                 ))}
               </select>
             </label>
-            <label>场次<input value={item.matchNo || ""} onChange={(e) => updateItem(index, { matchNo: e.target.value })} /></label>
-            <label>主队<input value={item.homeTeam || ""} onChange={(e) => updateItem(index, { homeTeam: e.target.value })} /></label>
-            <label>客队<input value={item.awayTeam || ""} onChange={(e) => updateItem(index, { awayTeam: e.target.value })} /></label>
             <label>玩法
-              <select value={market} onChange={(e) => updateItem(index, { market: e.target.value })}>
+              <select value={market} onChange={(e) => updateItem(index, { market: e.target.value, selection: "", handicap: e.target.value === "让球胜平负" ? item.handicap : "" })}>
                 <option value="胜平负">胜平负</option>
                 <option value="让球胜平负">让球胜平负</option>
                 <option value="比分">比分</option>
                 <option value="总进球">总进球</option>
-                <option value="半全场">半全场</option>
               </select>
             </label>
             {market === "让球胜平负" && (
@@ -1904,10 +1980,23 @@ function BetItemsEditor({ items, matches, onChange }) {
             )}
             {selectionField(item, index, market)}
             <label>赔率<input type="number" step="0.001" value={item.odds || ""} onChange={(e) => updateItem(index, { odds: e.target.value })} /></label>
+            {!matched && (
+              <div className="manualMatchFields wideField">
+                <label>场次<input value={item.matchNo || ""} onChange={(e) => updateItem(index, { matchNo: e.target.value })} placeholder="如 M003" /></label>
+                <label>主队<input value={item.homeTeam || ""} onChange={(e) => updateItem(index, { homeTeam: e.target.value })} /></label>
+                <label>客队<input value={item.awayTeam || ""} onChange={(e) => updateItem(index, { awayTeam: e.target.value })} /></label>
+              </div>
+            )}
             <div className={matched ? "matchLink ok" : "matchLink warn"}>
-              {matched ? `已匹配：${matched.matchUid || matched.matchNo}` : "未匹配赛程"}
+              {matched
+                ? `已匹配：${matched.matchUid || matched.matchNo} · ${matched.homeTeam} vs ${matched.awayTeam}`
+                : "未匹配赛程，可手填场次和双方"}
             </div>
-            <button className="ghost compactBtn wideField" type="button" onClick={() => removeItem(index)}>删除投注项</button>
+            {market === "让球胜平负" && <div className="matchLink warn">提示：主队让 1 球填 -1；主队受让 1 球填 1。</div>}
+            <div className="betItemActions wideField">
+              <button className="ghost compactBtn" type="button" onClick={() => duplicateItem(index)}>复制本项</button>
+              <button className="ghost compactBtn" type="button" onClick={() => removeItem(index)} disabled={items.length <= 1}>删除投注项</button>
+            </div>
           </div>
         );
       })}
@@ -1967,6 +2056,11 @@ function TicketsView({ data, filter, setFilter, participantFilter, setParticipan
     if (!editForm) return;
     if (!Number(editForm.stakeAmount)) {
       alert("请填写有效投注金额。");
+      return;
+    }
+    const itemCheck = validateBetItems(editForm.betItems, data.matches);
+    if (!itemCheck.ok) {
+      alert(itemCheck.reason);
       return;
     }
     const matchedIds = new Set(editForm.matchIds || []);
