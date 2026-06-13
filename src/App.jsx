@@ -485,6 +485,18 @@ async function saveSharedData(data) {
   }
 }
 
+async function appendSharedTicket(ticket, matches = [], participants = []) {
+  const response = await fetch("/api/state?append=ticket", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ticket, matches, participants }),
+  });
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    throw new Error(result.error || "共享票据追加失败");
+  }
+}
+
 function compressImageFile(file, maxSide = 1100, quality = 0.74) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1056,6 +1068,31 @@ export default function App() {
       .catch((error) => setSyncStatus(`共享保存失败：${error.message}`));
   }
 
+  function appendTicket(ticket, addedMatches = []) {
+    setData((current) => {
+      const existingMatchIds = new Set((current.matches || []).map((match) => match.id));
+      const merged = migrateData({
+        ...current,
+        matches: [
+          ...(current.matches || []),
+          ...addedMatches.filter((match) => !existingMatchIds.has(match.id)),
+        ],
+        tickets: (current.tickets || []).some((item) => item.id === ticket.id)
+          ? current.tickets
+          : [ticket, ...(current.tickets || [])],
+      });
+      saveData(merged);
+      return merged;
+    });
+    setSyncStatus("正在保存新增票据...");
+    return appendSharedTicket(ticket, addedMatches, data.participants)
+      .then(() => setSyncStatus(`新增票据已保存：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`))
+      .catch((error) => {
+        setSyncStatus(`新增票据共享保存失败：${error.message}`);
+        throw error;
+      });
+  }
+
   function updateTicket(ticketId, patch) {
     commit({
       ...data,
@@ -1143,7 +1180,7 @@ export default function App() {
         {activeTab !== "forecast" && <EventBanner rows={rows} stats={stats} />}
 
         {activeTab === "rank" && <RankView rows={rows} stats={stats} setSelectedUser={setSelectedUser} selectedUser={selectedUser} />}
-        {activeTab === "upload" && <UploadView data={data} commit={commit} locked={data.locked} />}
+        {activeTab === "upload" && <UploadView data={data} appendTicket={appendTicket} locked={data.locked} />}
         {activeTab === "tickets" && (
           <TicketsView
             data={data}
@@ -1575,7 +1612,7 @@ function Stat({ icon, label, value }) {
   );
 }
 
-function UploadView({ data, commit, locked }) {
+function UploadView({ data, appendTicket, locked }) {
   const [form, setForm] = useState({
     participantId: data.participants[0]?.id || "",
     ticketNo: "",
@@ -1606,23 +1643,11 @@ function UploadView({ data, commit, locked }) {
       alert("榜单已锁定，不能新增票据。");
       return;
     }
-    setUploadStatus("正在同步线上最新数据...");
-    let baseData = data;
-    try {
-      const shared = await loadSharedData();
-      if (shared) baseData = shared;
-    } catch {
-      setUploadStatus("共享数据暂时无法读取，将基于当前页面数据保存。");
-    }
-    if (baseData.locked) {
-      alert("榜单已锁定，不能新增票据。");
-      return;
-    }
-    const participant = baseData.participants.find((person) => person.id === form.participantId);
+    const participant = data.participants.find((person) => person.id === form.participantId);
     const addedMatches = [];
     const matchedIds = new Set(form.matchIds);
     form.betItems.forEach((item) => {
-      const matched = findMatchForBet(item, [...baseData.matches, ...addedMatches]);
+      const matched = findMatchForBet(item, [...data.matches, ...addedMatches]);
       if (matched) {
         matchedIds.add(matched.id);
         return;
@@ -1644,7 +1669,7 @@ function UploadView({ data, commit, locked }) {
         matchedIds.add(match.id);
       }
     });
-    const allMatches = [...baseData.matches, ...addedMatches];
+    const allMatches = [...data.matches, ...addedMatches];
     const selectedMatches = Array.from(matchedIds).map((id) => allMatches.find((match) => match.id === id)).filter(Boolean);
     const gate = canSubmitTicket(selectedMatches, form.purchaseTime);
     if (!gate.ok) {
@@ -1687,7 +1712,8 @@ function UploadView({ data, commit, locked }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    commit({ ...baseData, matches: allMatches, tickets: [ticket, ...(baseData.tickets || [])] });
+    setUploadStatus("正在保存新增票据...");
+    await appendTicket(ticket, addedMatches);
     setForm((next) => ({
       ...next,
       ticketNo: "",

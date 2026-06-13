@@ -37,6 +37,33 @@ app.post("/api/state", async (req, res) => {
     if (existsSync(stateFile)) {
       current = JSON.parse(await readFile(stateFile, "utf8"));
     }
+    if (req.query.append === "ticket") {
+      const ticket = req.body?.ticket;
+      if (!ticket?.id) {
+        return res.status(400).json({ error: "缺少票据数据。" });
+      }
+      const existing = current || { participants: req.body?.participants || [], matches: [], tickets: [], locked: false };
+      if (existing.locked) {
+        return res.status(409).json({ error: "榜单已锁定，不能新增票据。" });
+      }
+      const matchMap = new Map((existing.matches || []).map((match) => [match.id, match]));
+      for (const match of Array.isArray(req.body?.matches) ? req.body.matches : []) {
+        if (match?.id && !matchMap.has(match.id)) matchMap.set(match.id, match);
+      }
+      const tickets = Array.isArray(existing.tickets) ? existing.tickets : [];
+      const next = {
+        ...existing,
+        participants: Array.isArray(existing.participants) && existing.participants.length ? existing.participants : (req.body?.participants || []),
+        matches: Array.from(matchMap.values()),
+        tickets: tickets.some((item) => item.id === ticket.id) ? tickets : [ticket, ...tickets],
+      };
+      if (current) {
+        const backupFile = path.join(path.dirname(stateFile), `shared-state-backup-${Date.now()}.json`);
+        await writeFile(backupFile, JSON.stringify(current, null, 2), "utf8");
+      }
+      await writeFile(stateFile, JSON.stringify(next, null, 2), "utf8");
+      return res.json({ ok: true, savedAt: new Date().toISOString(), ticketCount: next.tickets.length });
+    }
     const currentTickets = Array.isArray(current?.tickets) ? current.tickets.length : 0;
     const nextTickets = Array.isArray(req.body?.tickets) ? req.body.tickets.length : 0;
     if (currentTickets > 0 && nextTickets === 0) {

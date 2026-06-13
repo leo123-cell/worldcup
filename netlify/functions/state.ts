@@ -6,9 +6,9 @@ const BACKUP_PREFIX = "state-backup-";
 
 export default async (req: Request) => {
   const store = getStore({ name: STORE_NAME, consistency: "strong" });
+  const url = new URL(req.url);
 
   if (req.method === "GET") {
-    const url = new URL(req.url);
     if (url.searchParams.get("backups") === "1") {
       const { blobs } = await store.list({ prefix: BACKUP_PREFIX });
       return json({ backups: blobs.map((blob) => blob.key).sort().reverse().slice(0, 20) });
@@ -28,6 +28,33 @@ export default async (req: Request) => {
       return json({ error: "\u8bf7\u6c42\u6570\u636e\u683c\u5f0f\u4e0d\u6b63\u786e\u3002" }, 400);
     }
     const current = await store.get(STATE_KEY, { type: "json" });
+    if (url.searchParams.get("append") === "ticket") {
+      const ticket = (body as any).ticket;
+      if (!ticket?.id) return json({ error: "\u7f3a\u5c11\u7968\u636e\u6570\u636e\u3002" }, 400);
+      const existing = current && typeof current === "object"
+        ? current as any
+        : { participants: (body as any).participants || [], matches: [], tickets: [], locked: false };
+      if (existing.locked) return json({ error: "\u699c\u5355\u5df2\u9501\u5b9a\uff0c\u4e0d\u80fd\u65b0\u589e\u7968\u636e\u3002" }, 409);
+      const incomingMatches = Array.isArray((body as any).matches) ? (body as any).matches : [];
+      const matchMap = new Map((existing.matches || []).map((match: any) => [match.id, match]));
+      for (const match of incomingMatches) {
+        if (match?.id && !matchMap.has(match.id)) matchMap.set(match.id, match);
+      }
+      const tickets = Array.isArray(existing.tickets) ? existing.tickets : [];
+      const next = {
+        ...existing,
+        participants: Array.isArray(existing.participants) && existing.participants.length
+          ? existing.participants
+          : ((body as any).participants || []),
+        matches: Array.from(matchMap.values()),
+        tickets: tickets.some((item: any) => item.id === ticket.id) ? tickets : [ticket, ...tickets],
+      };
+      if (current) {
+        await store.setJSON(`${BACKUP_PREFIX}${Date.now()}`, current);
+      }
+      await store.setJSON(STATE_KEY, next);
+      return json({ ok: true, savedAt: new Date().toISOString(), ticketCount: next.tickets.length });
+    }
     const currentTickets = Array.isArray((current as any)?.tickets) ? (current as any).tickets.length : 0;
     const nextTickets = Array.isArray((body as any)?.tickets) ? (body as any).tickets.length : 0;
     if (currentTickets > 0 && nextTickets === 0) {
