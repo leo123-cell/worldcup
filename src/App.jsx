@@ -484,7 +484,7 @@ function saveScoreDrafts(drafts) {
 }
 
 async function loadSharedData() {
-  const response = await fetch("/api/state", { cache: "no-store" });
+  const response = await fetch("/api/state?omitImages=1", { cache: "no-store" });
   if (!response.ok) throw new Error("共享数据读取失败");
   const result = await response.json();
   return result.data ? migrateData(result.data) : null;

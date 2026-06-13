@@ -54,13 +54,23 @@ function itemTime(item) {
   return Number.isFinite(value) ? value : 0;
 }
 
-app.get("/api/state", async (_req, res) => {
+function stripImages(data) {
+  if (!data || typeof data !== "object") return data || null;
+  return {
+    ...data,
+    tickets: Array.isArray(data.tickets)
+      ? data.tickets.map((ticket) => ticket?.imageUrl ? { ...ticket, imageUrl: "" } : ticket)
+      : [],
+  };
+}
+
+app.get("/api/state", async (req, res) => {
   try {
     if (!existsSync(stateFile)) {
       return res.json({ data: null });
     }
     const data = JSON.parse(await readFile(stateFile, "utf8"));
-    res.json({ data });
+    res.json({ data: req.query.omitImages === "1" ? stripImages(data) : data });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: "读取共享数据失败。" });
