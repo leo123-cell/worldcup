@@ -57,9 +57,10 @@ export default async (req: Request) => {
     }
     const currentTickets = Array.isArray((current as any)?.tickets) ? (current as any).tickets.length : 0;
     const nextTickets = Array.isArray((body as any)?.tickets) ? (body as any).tickets.length : 0;
-    if (currentTickets > 0 && nextTickets === 0) {
+    const allowTicketShrink = url.searchParams.get("allowTicketShrink") === "1";
+    if (currentTickets > 0 && nextTickets < currentTickets && !allowTicketShrink) {
       return json({
-        error: "\u5df2\u62e6\u622a\u7a7a\u7968\u636e\u6570\u636e\u8986\u76d6\u3002\u8bf7\u5148\u5237\u65b0\u9875\u9762\u518d\u64cd\u4f5c\u3002",
+        error: `已拦截票据数据减少覆盖。当前线上 ${currentTickets} 张，本次保存 ${nextTickets} 张。请先同步共享数据再操作。`,
         currentTickets,
         nextTickets,
       }, 409);

@@ -473,8 +473,9 @@ async function loadSharedData() {
   return result.data ? migrateData(result.data) : null;
 }
 
-async function saveSharedData(data) {
-  const response = await fetch("/api/state", {
+async function saveSharedData(data, options = {}) {
+  const url = options.allowTicketShrink ? "/api/state?allowTicketShrink=1" : "/api/state";
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -1114,12 +1115,12 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, []);
 
-  function commit(next) {
+  function commit(next, options = {}) {
     const migrated = migrateData(next);
     setData(migrated);
     saveData(migrated);
     setSyncStatus("正在保存共享数据...");
-    saveSharedData(migrated)
+    saveSharedData(migrated, options)
       .then(() => setSyncStatus(`共享数据已保存：${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`))
       .catch((error) => setSyncStatus(`共享保存失败：${error.message}`));
   }
@@ -1165,7 +1166,8 @@ export default function App() {
   }
 
   function removeTicket(ticketId) {
-    commit({ ...data, tickets: data.tickets.filter((ticket) => ticket.id !== ticketId) });
+    if (!window.confirm("确认删除这张票据？删除后会重新计算统计和排行榜。")) return;
+    commit({ ...data, tickets: data.tickets.filter((ticket) => ticket.id !== ticketId) }, { allowTicketShrink: true });
   }
 
   function refreshMatchStatuses() {

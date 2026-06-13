@@ -66,9 +66,10 @@ app.post("/api/state", async (req, res) => {
     }
     const currentTickets = Array.isArray(current?.tickets) ? current.tickets.length : 0;
     const nextTickets = Array.isArray(req.body?.tickets) ? req.body.tickets.length : 0;
-    if (currentTickets > 0 && nextTickets === 0) {
+    const allowTicketShrink = req.query.allowTicketShrink === "1";
+    if (currentTickets > 0 && nextTickets < currentTickets && !allowTicketShrink) {
       return res.status(409).json({
-        error: "已拦截空票据数据覆盖。请先刷新页面再操作。",
+        error: `已拦截票据数据减少覆盖。当前线上 ${currentTickets} 张，本次保存 ${nextTickets} 张。请先同步共享数据再操作。`,
         currentTickets,
         nextTickets,
       });
