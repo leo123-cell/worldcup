@@ -444,14 +444,31 @@ function migrateData(data) {
 }
 
 function saveData(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stripLocalImages(data)));
+  } catch {
+    localStorage.removeItem(STORAGE_KEY);
+  }
 }
 
 function saveLocalBackup(data) {
-  localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({
-    backedUpAt: new Date().toISOString(),
-    data,
-  }));
+  try {
+    localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({
+      backedUpAt: new Date().toISOString(),
+      data: stripLocalImages(data),
+    }));
+  } catch {
+    localStorage.removeItem(LOCAL_BACKUP_KEY);
+  }
+}
+
+function stripLocalImages(data) {
+  return {
+    ...data,
+    tickets: (data.tickets || []).map((ticket) => (
+      ticket.imageUrl ? { ...ticket, imageUrl: "" } : ticket
+    )),
+  };
 }
 
 function loadScoreDrafts() {
@@ -1793,22 +1810,27 @@ function UploadView({ data, appendTicket, locked }) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    setUploadStatus("正在保存新增票据...");
-    await appendTicket(ticket, addedMatches);
-    setForm((next) => ({
-      ...next,
-      ticketNo: "",
-      stakeAmount: "",
-      stakeUnits: "1",
-      multiplier: "",
-      estimatedPrize: "",
-      playType: "单关",
-      selectionText: "",
-      betItems: [defaultBetItem()],
-      matchIds: [],
-      imageUrl: "",
-    }));
-    setUploadStatus("已保存为待比赛票据");
+    try {
+      setUploadStatus("正在保存新增票据...");
+      await appendTicket(ticket, addedMatches);
+      setForm((next) => ({
+        ...next,
+        ticketNo: "",
+        stakeAmount: "",
+        stakeUnits: "1",
+        multiplier: "",
+        estimatedPrize: "",
+        playType: "单关",
+        selectionText: "",
+        betItems: [defaultBetItem()],
+        matchIds: [],
+        imageUrl: "",
+      }));
+      setUploadStatus("已保存为待比赛票据");
+    } catch (error) {
+      setUploadStatus(`提交失败：${error.message}`);
+      alert(`提交失败：${error.message}`);
+    }
   }
 
   return (

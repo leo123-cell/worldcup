@@ -43,7 +43,9 @@ function mergeById(currentItems, incomingItems) {
     const incoming = incomingMap.get(id);
     if (!current) return incoming;
     if (!incoming) return current;
-    return itemTime(incoming) >= itemTime(current) ? incoming : current;
+    const selected = itemTime(incoming) >= itemTime(current) ? incoming : current;
+    if (current?.imageUrl && !selected?.imageUrl) return { ...selected, imageUrl: current.imageUrl };
+    return selected;
   });
 }
 
