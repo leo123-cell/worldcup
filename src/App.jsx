@@ -6,6 +6,7 @@ import {
   Check,
   CircleDollarSign,
   Clock3,
+  FastForward,
   FileImage,
   ListChecks,
   MapPin,
@@ -978,6 +979,7 @@ function settleTicketsByScores(data) {
     ...data,
     tickets: data.tickets.map((ticket) => {
       if (ticket.status === "void") return ticket;
+      if (ticket.settledBy === "quick-entry") return ticket;
       const settlement = settleTicketByScores(ticket, data.matches);
       if (settlement) return { ...ticket, ...settlement, updatedAt: new Date().toISOString() };
       if (ticket.status === "won" || ticket.status === "lost" || ticket.status === "pending_settle") {
@@ -1238,6 +1240,7 @@ export default function App() {
         </div>
         <nav>
           <Tab id="rank" active={activeTab} setActive={setActiveTab} icon={<BarChart3 size={18} />} label="排行榜" />
+          <Tab id="quick" active={activeTab} setActive={setActiveTab} icon={<FastForward size={18} />} label="简易上传" />
           <Tab id="upload" active={activeTab} setActive={setActiveTab} icon={<Upload size={18} />} label="上传票据" />
           <Tab id="tickets" active={activeTab} setActive={setActiveTab} icon={<ListChecks size={18} />} label="票据管理" />
           <Tab id="forecast" active={activeTab} setActive={setActiveTab} icon={<Sparkles size={18} />} label="比分预测" />
@@ -1273,6 +1276,7 @@ export default function App() {
         {activeTab !== "forecast" && <EventBanner rows={rows} stats={stats} />}
 
         {activeTab === "rank" && <RankView rows={rows} stats={stats} setSelectedUser={setSelectedUser} selectedUser={selectedUser} />}
+        {activeTab === "quick" && <QuickUploadView data={data} appendTicket={appendTicket} locked={data.locked} />}
         {activeTab === "upload" && <UploadView data={data} appendTicket={appendTicket} locked={data.locked} />}
         {activeTab === "tickets" && (
           <TicketsView
@@ -1338,6 +1342,7 @@ function EventBanner({ rows, stats }) {
 function pageTitle(tab) {
   return {
     rank: "实时排行榜",
+    quick: "简易上传",
     upload: "上传票据",
     tickets: "票据管理",
     forecast: "世界杯比分预测",
@@ -1418,6 +1423,148 @@ function RankView({ rows, stats, setSelectedUser, selectedUser }) {
           <TicketMiniList tickets={selected.tickets} />
         </div>
       )}
+    </section>
+  );
+}
+
+function QuickUploadView({ data, appendTicket, locked }) {
+  const [form, setForm] = useState({
+    participantId: data.participants[0]?.id || "",
+    imageUrl: "",
+    stakeAmount: "",
+    actualPrize: "",
+  });
+  const [status, setStatus] = useState("上传照片并填写投入、收入后，会直接进入排行榜。");
+
+  React.useEffect(() => {
+    if (!form.participantId && data.participants[0]?.id) {
+      setForm((next) => ({ ...next, participantId: data.participants[0].id }));
+    }
+  }, [data.participants, form.participantId]);
+
+  async function onFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const imageUrl = await compressImageFile(file);
+    setForm((next) => ({ ...next, imageUrl }));
+    setStatus("图片已上传，填写投入和收入后提交。");
+  }
+
+  async function submit(event) {
+    event.preventDefault();
+    if (locked) {
+      alert("榜单已锁定，不能新增票据。");
+      return;
+    }
+    const participant = data.participants.find((person) => person.id === form.participantId);
+    const stakeAmount = Number(form.stakeAmount);
+    const actualPrize = Number(form.actualPrize || 0);
+    if (!participant) {
+      alert("请选择参与者。");
+      return;
+    }
+    if (!form.imageUrl) {
+      alert("请上传票据照片。");
+      return;
+    }
+    if (!Number.isFinite(stakeAmount) || stakeAmount <= 0) {
+      alert("请填写有效投入金额。");
+      return;
+    }
+    if (!Number.isFinite(actualPrize) || actualPrize < 0) {
+      alert("请填写有效收入金额，没有中奖填 0。");
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const ticket = {
+      id: uid("t"),
+      participantId: form.participantId,
+      imageUrl: form.imageUrl,
+      ticketNo: makeTicketUid(participant.name),
+      purchaseTime: formatDateTimeInput(new Date()),
+      playType: "简易录入",
+      stakeAmount,
+      stakeUnits: 1,
+      multiplier: 1,
+      estimatedPrize: actualPrize,
+      actualPrize,
+      status: actualPrize > 0 ? "won" : "lost",
+      matchIds: [],
+      betItems: [],
+      selectionText: "简易上传：按投入和收入直接计入排名",
+      createdAt: now,
+      updatedAt: now,
+      settledAt: now,
+      settledBy: "quick-entry",
+    };
+
+    try {
+      setStatus("正在保存简易票据...");
+      await appendTicket(ticket, []);
+      setForm((next) => ({
+        ...next,
+        imageUrl: "",
+        stakeAmount: "",
+        actualPrize: "",
+      }));
+      setStatus("已保存，并已计入排行榜。");
+    } catch (error) {
+      setStatus(`提交失败：${error.message}`);
+      alert(`提交失败：${error.message}`);
+    }
+  }
+
+  const stake = Number(form.stakeAmount || 0);
+  const prize = Number(form.actualPrize || 0);
+  const profit = prize - stake;
+  const roi = stake > 0 ? profit / stake : 0;
+
+  return (
+    <section className="twoColumn">
+      <form className="panel formPanel quickUploadPanel" onSubmit={submit}>
+        <div className="panelHeader">
+          <div>
+            <h2>简易上传</h2>
+            <p>适合已经知道票据最终收入的情况：选人、传图、填投入和收入即可计入排名。</p>
+          </div>
+        </div>
+        <label>
+          参与者
+          <select value={form.participantId} onChange={(event) => setForm({ ...form, participantId: event.target.value })}>
+            {data.participants.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select>
+        </label>
+        <label className="fileDrop">
+          <FileImage size={24} />
+          <span>{form.imageUrl ? "已选择图片，可重新上传" : "选择票据照片"}</span>
+          <input type="file" accept="image/*" onChange={onFile} />
+        </label>
+        <div className="fieldGrid">
+          <label>投入金额<input type="number" min="0" step="0.01" value={form.stakeAmount} onChange={(e) => setForm({ ...form, stakeAmount: e.target.value })} placeholder="如 20" /></label>
+          <label>收入金额<input type="number" min="0" step="0.01" value={form.actualPrize} onChange={(e) => setForm({ ...form, actualPrize: e.target.value })} placeholder="未中奖填 0" /></label>
+        </div>
+        <div className="quickMath">
+          <span>盈亏 <b className={profit >= 0 ? "positive" : "negative"}>{money(profit)} 元</b></span>
+          <span>收益率 <b className={roi >= 0 ? "positive" : "negative"}>{percent(roi)}</b></span>
+        </div>
+        <button className="primary wide" disabled={locked}><Check size={17} /> 提交并计入排行榜</button>
+        <p className="muted">{status}</p>
+      </form>
+      <aside className="panel previewPanel quickHelp">
+        <div className="panelHeader">
+          <div>
+            <h2>计分方式</h2>
+            <p>简易票据会作为已结算票据进入票据管理。</p>
+          </div>
+        </div>
+        <div className="quickRules">
+          <div><span>投入</span><strong>填写实际花费</strong></div>
+          <div><span>收入</span><strong>填写返奖金额</strong></div>
+          <div><span>未中奖</span><strong>收入填 0</strong></div>
+          <div><span>排名</span><strong>立即更新</strong></div>
+        </div>
+      </aside>
     </section>
   );
 }

@@ -1023,6 +1023,49 @@ input:focus, select:focus, textarea:focus {
   gap: 12px;
 }
 
+.quickUploadPanel {
+  align-content: start;
+}
+
+.quickMath {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quickMath span,
+.quickRules div {
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.quickMath span {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.quickRules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quickRules span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.quickRules strong {
+  color: var(--text);
+}
+
 .fileDrop {
   min-height: 112px;
   position: relative;
