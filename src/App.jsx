@@ -1225,7 +1225,13 @@ export default function App() {
       alert("仍有未结算或待确认票据，不能锁榜。");
       return;
     }
+    if (!window.confirm("确认锁定最终榜？锁定后不能新增、编辑或删除票据。")) return;
     commit({ ...data, locked: true, lockedAt: new Date().toISOString() });
+  }
+
+  function unlockBoard() {
+    if (!window.confirm("确认解除锁榜？解除后可以继续新增、编辑和删除票据。")) return;
+    commit({ ...data, locked: false, lockedAt: null });
   }
 
   return (
@@ -1266,9 +1272,15 @@ export default function App() {
             <button className="ghost" onClick={refreshSharedData}>
               <Search size={17} /> 同步共享数据
             </button>
-            <button className="primary" onClick={lockBoard} disabled={data.locked}>
-              <Award size={17} /> {data.locked ? "已锁榜" : "锁定最终榜"}
-            </button>
+            {data.locked ? (
+              <button className="ghost" onClick={unlockBoard}>
+                <Award size={17} /> 解除锁榜
+              </button>
+            ) : (
+              <button className="primary" onClick={lockBoard}>
+                <Award size={17} /> 锁定最终榜
+              </button>
+            )}
           </div>
           <div className="syncStatus">{syncStatus}</div>
         </header>

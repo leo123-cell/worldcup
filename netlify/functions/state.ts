@@ -118,7 +118,7 @@ function mergeState(current: any, incoming: any) {
     participants: mergeById(current.participants, incoming.participants),
     matches: mergeById(current.matches, incoming.matches),
     tickets: mergeById(current.tickets, incoming.tickets),
-    locked: Boolean(current.locked || incoming.locked),
+    locked: typeof incoming.locked === "boolean" ? incoming.locked : Boolean(current.locked),
     lockedAt: incoming.lockedAt || current.lockedAt,
   };
 }
